@@ -2,8 +2,12 @@ package com.example.workflow.controller;
 
 import org.camunda.bpm.engine.RuntimeService;
 import org.camunda.bpm.engine.HistoryService;
+import org.camunda.bpm.engine.RepositoryService;
 import org.camunda.bpm.engine.runtime.ProcessInstance;
 import org.camunda.bpm.engine.history.HistoricVariableInstance;
+import org.camunda.bpm.engine.repository.ProcessDefinition;
+import org.camunda.bpm.model.bpmn.BpmnModelInstance;
+import org.camunda.bpm.model.bpmn.instance.ServiceTask;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -24,6 +28,33 @@ public class ProcessController {
     
     @Autowired
     private HistoryService historyService;
+    
+    @Autowired
+    private RepositoryService repositoryService;
+
+    /**
+     * 動態取得指定 process key 中的所有 service task ID
+     */
+    private java.util.List<String> getServiceTaskIds(String processDefinitionKey) {
+        try {
+            ProcessDefinition processDefinition = repositoryService
+                .createProcessDefinitionQuery()
+                .processDefinitionKey(processDefinitionKey)
+                .latestVersion()
+                .singleResult();
+            
+            BpmnModelInstance modelInstance = repositoryService
+                .getBpmnModelInstance(processDefinition.getId());
+            
+            return modelInstance.getModelElementsByType(ServiceTask.class)
+                .stream()
+                .map(serviceTask -> serviceTask.getId())
+                .collect(java.util.stream.Collectors.toList());
+        } catch (Exception e) {
+            logger.error("Failed to get service task IDs for process: {}", processDefinitionKey, e);
+            return java.util.Collections.emptyList();
+        }
+    }
 
     @PostMapping("/execute")
     public ResponseEntity<Map<String, Object>> executeProcess(@RequestBody ProcessRequest request) {
@@ -84,17 +115,41 @@ public class ProcessController {
     }
 
     @PostMapping("/multiexecute")
-    public ResponseEntity<Map<String, Object>> executeProcessMulti(@RequestBody ProcessRequest request) {
+    public ResponseEntity<Map<String, Object>> executeProcessMulti(@RequestBody MultiProcessRequest request) {
         try {
             // 調試信息：檢查輸入參數
-            logger.debug("=== ProcessController Debug Info ===");
-            logger.debug("Input apiUrl: {}", request.getApiUrl());
-            logger.debug("Input payload: {}", request.getPayload());
+            logger.debug("=== ProcessController MultiExecute Debug Info ===");
+            logger.debug("API1 - URL: {}, Payload: {}", request.getApi1Url(), request.getApi1Payload());
+            logger.debug("API2 - URL: {}, Payload: {}", request.getApi2Url(), request.getApi2Payload());
             
-            // 準備流程變數
+            // 動態取得 process 中的 service task IDs
+            java.util.List<String> serviceTaskIds = getServiceTaskIds("multiprocess");
+            logger.debug("Service Task IDs found in multiprocess: {}", serviceTaskIds);
+            
+            // 準備流程變數 - 使用動態取得的 activity ID
             Map<String, Object> variables = new HashMap<>();
-            variables.put("apiUrl", request.getApiUrl());
-            variables.put("requestPayload", request.getPayload());
+            
+            if (serviceTaskIds.size() >= 2) {
+                // 如果有兩個或以上的 service task，分別設定變數
+                String api1TaskId = serviceTaskIds.get(0);
+                String api2TaskId = serviceTaskIds.get(1);
+                
+                variables.put(api1TaskId + "_apiUrl", request.getApi1Url());
+                variables.put(api1TaskId + "_requestPayload", request.getApi1Payload());
+                variables.put(api2TaskId + "_apiUrl", request.getApi2Url());
+                variables.put(api2TaskId + "_requestPayload", request.getApi2Payload());
+                
+                logger.debug("Using API1 task ID: {}, API2 task ID: {}", api1TaskId, api2TaskId);
+            } else if (serviceTaskIds.size() == 1) {
+                // 如果只有一個 service task，只處理第一個 API 請求
+                String taskId = serviceTaskIds.get(0);
+                variables.put(taskId + "_apiUrl", request.getApi1Url());
+                variables.put(taskId + "_requestPayload", request.getApi1Payload());
+                
+                logger.warn("Only one service task found, ignoring API2 request");
+            } else {
+                throw new RuntimeException("No service tasks found in multiprocess definition");
+            }
             
             logger.debug("Variables being passed: {}", variables);
             logger.debug("====================================");
@@ -125,17 +180,60 @@ public class ProcessController {
             }
             logger.debug("Variables after execution: {}", processVariables);
             
-            // 準備回應
+            // 合併兩個 API 的結果
+            Map<String, Object> combinedResponse = new HashMap<>();
+            
+            // 重新取得 service task IDs（確保與前面使用相同的順序）
+            java.util.List<String> resultServiceTaskIds = getServiceTaskIds("multiprocess");
+            
+            String api1Response = null, api1Status = null;
+            String api2Response = null, api2Status = null;
+            
+            // 根據動態取得的 task ID 來取得結果
+            if (resultServiceTaskIds.size() >= 1) {
+                String api1TaskId = resultServiceTaskIds.get(0);
+                api1Response = (String) processVariables.get(api1TaskId + "_responseData");
+                api1Status = (String) processVariables.get(api1TaskId + "_status");
+            }
+            
+            if (resultServiceTaskIds.size() >= 2) {
+                String api2TaskId = resultServiceTaskIds.get(1);
+                api2Response = (String) processVariables.get(api2TaskId + "_responseData");
+                api2Status = (String) processVariables.get(api2TaskId + "_status");
+            }
+            
+            // 建構合併後的回應
+            Map<String, Object> api1Result = new HashMap<>();
+            api1Result.put("status", api1Status);
+            api1Result.put("responseData", api1Response);
+            
+            Map<String, Object> api2Result = new HashMap<>();
+            api2Result.put("status", api2Status);
+            api2Result.put("responseData", api2Response);
+            
+            combinedResponse.put("api1", api1Result);
+            combinedResponse.put("api2", api2Result);
+            
+            // 判斷整體狀態
+            String overallStatus = "SUCCESS";
+            if (!"SUCCESS".equals(api1Status) || !"SUCCESS".equals(api2Status)) {
+                overallStatus = "PARTIAL_SUCCESS";
+                if (!"SUCCESS".equals(api1Status) && !"SUCCESS".equals(api2Status)) {
+                    overallStatus = "FAILURE";
+                }
+            }
+            
+            // 準備最終回應
             Map<String, Object> response = new HashMap<>();
             response.put("processInstanceId", processInstance.getId());
-            response.put("status", processVariables.get("status"));
-            response.put("responseData", processVariables.get("responseData"));
+            response.put("overallStatus", overallStatus);
+            response.put("results", combinedResponse);
             
             return ResponseEntity.ok(response);
             
         } catch (Exception e) {
             Map<String, Object> errorResponse = new HashMap<>();
-            errorResponse.put("error", "流程執行失敗");
+            errorResponse.put("error", "多重流程執行失敗");
             errorResponse.put("message", e.getMessage());
             return ResponseEntity.status(500).body(errorResponse);
         }
@@ -160,6 +258,46 @@ public class ProcessController {
 
         public void setPayload(String payload) {
             this.payload = payload;
+        }
+    }
+
+    // 多重流程請求結構
+    public static class MultiProcessRequest {
+        private String api1Url;
+        private String api1Payload;
+        private String api2Url;
+        private String api2Payload;
+
+        public String getApi1Url() {
+            return api1Url;
+        }
+
+        public void setApi1Url(String api1Url) {
+            this.api1Url = api1Url;
+        }
+
+        public String getApi1Payload() {
+            return api1Payload;
+        }
+
+        public void setApi1Payload(String api1Payload) {
+            this.api1Payload = api1Payload;
+        }
+
+        public String getApi2Url() {
+            return api2Url;
+        }
+
+        public void setApi2Url(String api2Url) {
+            this.api2Url = api2Url;
+        }
+
+        public String getApi2Payload() {
+            return api2Payload;
+        }
+
+        public void setApi2Payload(String api2Payload) {
+            this.api2Payload = api2Payload;
         }
     }
 }

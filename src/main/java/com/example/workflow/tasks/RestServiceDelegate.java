@@ -19,22 +19,38 @@ public class RestServiceDelegate implements JavaDelegate {
     
     @Override
     public void execute(DelegateExecution execution) throws Exception {
+        String activityId = execution.getCurrentActivityId();
+        
         // 調試信息：檢查所有可用的變數
         logger.debug("=== RestServiceDelegate Debug Info ===");
         logger.debug("Process Instance ID: {}", execution.getProcessInstanceId());
-        logger.debug("Activity ID: {}", execution.getCurrentActivityId());
+        logger.debug("Activity ID: {}", activityId);
         logger.debug("All Variables: {}", execution.getVariables());
         
-        String apiUrl = (String) execution.getVariable("apiUrl");
-        String payload = (String) execution.getVariable("requestPayload");
+        // 使用 activityId 作為前綴來區分不同 service task 的變數
+        String apiUrlVar = activityId + "_apiUrl";
+        String payloadVar = activityId + "_requestPayload";
         
+        // 先嘗試使用 task-specific 變數，如果不存在則使用通用變數（向後兼容）
+        String apiUrl = (String) execution.getVariable(apiUrlVar);
+        if (apiUrl == null) {
+            apiUrl = (String) execution.getVariable("apiUrl");
+        }
+        
+        String payload = (String) execution.getVariable(payloadVar);
+        if (payload == null) {
+            payload = (String) execution.getVariable("requestPayload");
+        }
+        
+        logger.debug("Looking for variables: {} and {}", apiUrlVar, payloadVar);
         logger.debug("apiUrl: {}", apiUrl);
         logger.debug("payload: {}", payload);
         logger.debug("======================================");
         
         // 檢查必要的變數是否存在
         if (apiUrl == null || apiUrl.trim().isEmpty()) {
-            throw new Exception("apiUrl variable is required but not provided");
+            throw new Exception("apiUrl variable is required but not provided. " +
+                "Expected variable names: '" + apiUrlVar + "' or 'apiUrl'");
         }
         if (payload == null) {
             payload = "{}"; // 使用空 JSON 作為預設值
@@ -61,11 +77,24 @@ public class RestServiceDelegate implements JavaDelegate {
     
     private void handleResponse(DelegateExecution execution, HttpResponse<String> response) 
             throws BpmnError {
+        String activityId = execution.getCurrentActivityId();
         int statusCode = response.statusCode();
         String responseBody = response.body();
+        
         if (statusCode == 200 || statusCode == 201) {
+            // 使用 activityId 作為前綴設置 task-specific 回應變數
+            String responseVar = activityId + "_responseData";
+            String statusVar = activityId + "_status";
+            
+            execution.setVariable(responseVar, responseBody);
+            execution.setVariable(statusVar, "SUCCESS");
+            
+            // 也設置通用變數以保持向後兼容性
             execution.setVariable("responseData", responseBody);
             execution.setVariable("status", "SUCCESS");
+            
+            logger.debug("Set response variables: {} = {}, {} = SUCCESS", 
+                responseVar, responseBody, statusVar);
         } else if (statusCode >= 400 && statusCode < 500) {
             throw new BpmnError("CLIENT_ERROR", "API returned client error: " + statusCode);
         } else {
