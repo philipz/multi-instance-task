@@ -48,265 +48,55 @@ class ProcessControllerTest {
     }
 
     @Test
-    void testExecuteProcess_Success() {
-        // Arrange
+    void testExecuteProcess_Sequential_Success() {
+        // Arrange - 測試循序處理
         ProcessController.ProcessRequest request = new ProcessController.ProcessRequest();
-        request.setApiUrl("https://api.example.com/test");
-        request.setPayload("{\"test\": \"data\"}");
-
-        when(runtimeService.startProcessInstanceByKey(eq("process"), any(Map.class)))
-            .thenReturn(processInstance);
-        when(processInstance.getId()).thenReturn("process-123");
-        when(processInstance.isEnded()).thenReturn(true);
-
-        // 模擬歷史變數
-        List<HistoricVariableInstance> historicVariables = createHistoricVariables(
-            Map.of("status", "SUCCESS", "responseData", "{\"result\": \"test\"}")
+        request.setProcessType("sequential");
+        List<ProcessController.ApiCallRequest> apiCalls = Arrays.asList(
+            createApiCallRequest("https://api.example.com/test", "{\"test\": \"data\"}", null)
         );
+        request.setApiCalls(apiCalls);
 
-        when(historyService.createHistoricVariableInstanceQuery()).thenReturn(historicVariableInstanceQuery);
-        when(historicVariableInstanceQuery.processInstanceId("process-123")).thenReturn(historicVariableInstanceQuery);
-        when(historicVariableInstanceQuery.list()).thenReturn(historicVariables);
-
-        // Act
-        ResponseEntity<Map<String, Object>> response = processController.executeProcess(request);
-
-        // Assert
-        assertEquals(200, response.getStatusCode().value());
-        Map<String, Object> responseBody = response.getBody();
-        assertNotNull(responseBody);
-        assertEquals("process-123", responseBody.get("processInstanceId"));
-        assertEquals("SUCCESS", responseBody.get("status"));
-        assertEquals("{\"result\": \"test\"}", responseBody.get("responseData"));
-
-        // 驗證服務調用
-        verify(runtimeService).startProcessInstanceByKey(eq("process"), any(Map.class));
-    }
-
-    @Test
-    void testExecuteProcess_Exception() {
-        // Arrange
-        ProcessController.ProcessRequest request = new ProcessController.ProcessRequest();
-        request.setApiUrl("https://api.example.com/test");
-        request.setPayload("{\"test\": \"data\"}");
-
-        when(runtimeService.startProcessInstanceByKey(eq("process"), any(Map.class)))
-            .thenThrow(new RuntimeException("Process execution failed"));
-
-        // Act
-        ResponseEntity<Map<String, Object>> response = processController.executeProcess(request);
-
-        // Assert
-        assertEquals(500, response.getStatusCode().value());
-        assertNotNull(response.getBody());
-        assertEquals("流程執行失敗", response.getBody().get("error"));
-        assertEquals("Process execution failed", response.getBody().get("message"));
-    }
-
-    @Test
-    void testExecuteProcessMulti_BothSuccess() {
-        // Arrange
-        ProcessController.MultiProcessRequest request = new ProcessController.MultiProcessRequest();
-        request.setApi1Url("https://api1.example.com/test");
-        request.setApi1Payload("{\"test1\": \"data1\"}");
-        request.setApi2Url("https://api2.example.com/test");
-        request.setApi2Payload("{\"test2\": \"data2\"}");
-
-        when(runtimeService.startProcessInstanceByKey(eq("multiprocess"), any(Map.class)))
+        when(runtimeService.startProcessInstanceByKey(eq("sequentialprocess"), any(Map.class)))
             .thenReturn(processInstance);
-        when(processInstance.getId()).thenReturn("multiprocess-123");
+        when(processInstance.getId()).thenReturn("sequential-process-123");
         when(processInstance.isEnded()).thenReturn(true);
 
-        // 模擬兩個成功的 API 回應
+        // 模擬執行結果
+        List<Map<String, Object>> results = Arrays.asList(
+            createResultMap(0, "https://api.example.com/test", "SUCCESS", "{\"result\": \"test\"}")
+        );
         List<HistoricVariableInstance> historicVariables = createHistoricVariables(Map.of(
-            "callApi1_status", "SUCCESS",
-            "callApi1_responseData", "{\"result1\": \"test1\"}",
-            "callApi2_status", "SUCCESS",
-            "callApi2_responseData", "{\"result2\": \"test2\"}"
+            "results", results
         ));
 
         when(historyService.createHistoricVariableInstanceQuery()).thenReturn(historicVariableInstanceQuery);
-        when(historicVariableInstanceQuery.processInstanceId("multiprocess-123")).thenReturn(historicVariableInstanceQuery);
+        when(historicVariableInstanceQuery.processInstanceId("sequential-process-123")).thenReturn(historicVariableInstanceQuery);
         when(historicVariableInstanceQuery.list()).thenReturn(historicVariables);
 
         // Act
-        ResponseEntity<Map<String, Object>> response = processController.executeProcessMulti(request);
+        ResponseEntity<Map<String, Object>> response = processController.executeProcess(request);
 
         // Assert
         assertEquals(200, response.getStatusCode().value());
         Map<String, Object> responseBody = response.getBody();
         assertNotNull(responseBody);
-        assertEquals("multiprocess-123", responseBody.get("processInstanceId"));
+        assertEquals("sequential-process-123", responseBody.get("processInstanceId"));
+        assertEquals("sequential", responseBody.get("processType"));
         assertEquals("SUCCESS", responseBody.get("overallStatus"));
 
-        @SuppressWarnings("unchecked")
-        Map<String, Object> results = (Map<String, Object>) responseBody.get("results");
-        assertNotNull(results);
-
-        @SuppressWarnings("unchecked")
-        Map<String, Object> api1Result = (Map<String, Object>) results.get("api1");
-        assertEquals("SUCCESS", api1Result.get("status"));
-        assertEquals("{\"result1\": \"test1\"}", api1Result.get("responseData"));
-
-        @SuppressWarnings("unchecked")
-        Map<String, Object> api2Result = (Map<String, Object>) results.get("api2");
-        assertEquals("SUCCESS", api2Result.get("status"));
-        assertEquals("{\"result2\": \"test2\"}", api2Result.get("responseData"));
-
-        // 驗證變數設置
-        verify(runtimeService).startProcessInstanceByKey(eq("multiprocess"), any(Map.class));
+        // 驗證服務調用
+        verify(runtimeService).startProcessInstanceByKey(eq("sequentialprocess"), any(Map.class));
     }
 
     @Test
-    void testExecuteProcessMulti_PartialSuccess() {
-        // Arrange
-        ProcessController.MultiProcessRequest request = new ProcessController.MultiProcessRequest();
-        request.setApi1Url("https://api1.example.com/test");
-        request.setApi1Payload("{\"test1\": \"data1\"}");
-        request.setApi2Url("https://api2.example.com/test");
-        request.setApi2Payload("{\"test2\": \"data2\"}");
-
-        when(runtimeService.startProcessInstanceByKey(eq("multiprocess"), any(Map.class)))
-            .thenReturn(processInstance);
-        when(processInstance.getId()).thenReturn("multiprocess-123");
-        when(processInstance.isEnded()).thenReturn(true);
-
-        // 模擬一個成功，一個失敗
-        Map<String, Object> variables = new HashMap<>();
-        variables.put("callApi1_status", "SUCCESS");
-        variables.put("callApi1_responseData", "{\"result1\": \"test1\"}");
-        variables.put("callApi2_status", "FAILED");
-        variables.put("callApi2_responseData", null);
-        List<HistoricVariableInstance> historicVariables = createHistoricVariables(variables);
-
-        when(historyService.createHistoricVariableInstanceQuery()).thenReturn(historicVariableInstanceQuery);
-        when(historicVariableInstanceQuery.processInstanceId("multiprocess-123")).thenReturn(historicVariableInstanceQuery);
-        when(historicVariableInstanceQuery.list()).thenReturn(historicVariables);
-
-        // Act
-        ResponseEntity<Map<String, Object>> response = processController.executeProcessMulti(request);
-
-        // Assert
-        assertEquals(200, response.getStatusCode().value());
-        Map<String, Object> responseBody = response.getBody();
-        assertNotNull(responseBody);
-        assertEquals("PARTIAL_SUCCESS", responseBody.get("overallStatus"));
-
-        @SuppressWarnings("unchecked")
-        Map<String, Object> results = (Map<String, Object>) responseBody.get("results");
-        @SuppressWarnings("unchecked")
-        Map<String, Object> api1Result = (Map<String, Object>) results.get("api1");
-        assertEquals("SUCCESS", api1Result.get("status"));
-
-        @SuppressWarnings("unchecked")
-        Map<String, Object> api2Result = (Map<String, Object>) results.get("api2");
-        assertEquals("FAILED", api2Result.get("status"));
-    }
-
-    @Test
-    void testExecuteProcessMulti_BothFailed() {
-        // Arrange
-        ProcessController.MultiProcessRequest request = new ProcessController.MultiProcessRequest();
-        request.setApi1Url("https://api1.example.com/test");
-        request.setApi1Payload("{\"test1\": \"data1\"}");
-        request.setApi2Url("https://api2.example.com/test");
-        request.setApi2Payload("{\"test2\": \"data2\"}");
-
-        when(runtimeService.startProcessInstanceByKey(eq("multiprocess"), any(Map.class)))
-            .thenReturn(processInstance);
-        when(processInstance.getId()).thenReturn("multiprocess-123");
-        when(processInstance.isEnded()).thenReturn(true);
-
-        // 模擬兩個都失敗
-        Map<String, Object> variables = new HashMap<>();
-        variables.put("callApi1_status", "FAILED");
-        variables.put("callApi1_responseData", null);
-        variables.put("callApi2_status", "FAILED");
-        variables.put("callApi2_responseData", null);
-        List<HistoricVariableInstance> historicVariables = createHistoricVariables(variables);
-
-        when(historyService.createHistoricVariableInstanceQuery()).thenReturn(historicVariableInstanceQuery);
-        when(historicVariableInstanceQuery.processInstanceId("multiprocess-123")).thenReturn(historicVariableInstanceQuery);
-        when(historicVariableInstanceQuery.list()).thenReturn(historicVariables);
-
-        // Act
-        ResponseEntity<Map<String, Object>> response = processController.executeProcessMulti(request);
-
-        // Assert
-        assertEquals(200, response.getStatusCode().value());
-        Map<String, Object> responseBody = response.getBody();
-        assertEquals("FAILURE", responseBody.get("overallStatus"));
-    }
-
-    @Test
-    void testExecuteProcessMulti_ProcessStillRunning() {
-        // Arrange
-        ProcessController.MultiProcessRequest request = new ProcessController.MultiProcessRequest();
-        request.setApi1Url("https://api1.example.com/test");
-        request.setApi1Payload("{\"test1\": \"data1\"}");
-        request.setApi2Url("https://api2.example.com/test");
-        request.setApi2Payload("{\"test2\": \"data2\"}");
-
-        when(runtimeService.startProcessInstanceByKey(eq("multiprocess"), any(Map.class)))
-            .thenReturn(processInstance);
-        when(processInstance.getId()).thenReturn("multiprocess-123");
-        when(processInstance.isEnded()).thenReturn(false); // 流程尚未結束
-
-        // 模擬從運行時取得變數
-        Map<String, Object> runtimeVariables = Map.of(
-            "callApi1_status", "SUCCESS",
-            "callApi1_responseData", "{\"result1\": \"test1\"}",
-            "callApi2_status", "SUCCESS",
-            "callApi2_responseData", "{\"result2\": \"test2\"}"
-        );
-        when(runtimeService.getVariables("multiprocess-123")).thenReturn(runtimeVariables);
-
-        // Act
-        ResponseEntity<Map<String, Object>> response = processController.executeProcessMulti(request);
-
-        // Assert
-        assertEquals(200, response.getStatusCode().value());
-        Map<String, Object> responseBody = response.getBody();
-        assertEquals("SUCCESS", responseBody.get("overallStatus"));
-
-        // 驗證沒有調用歷史服務
-        verify(historyService, never()).createHistoricVariableInstanceQuery();
-        verify(runtimeService).getVariables("multiprocess-123");
-    }
-
-    @Test
-    void testExecuteProcessMulti_Exception() {
-        // Arrange
-        ProcessController.MultiProcessRequest request = new ProcessController.MultiProcessRequest();
-        request.setApi1Url("https://api1.example.com/test");
-        request.setApi1Payload("{\"test1\": \"data1\"}");
-        request.setApi2Url("https://api2.example.com/test");
-        request.setApi2Payload("{\"test2\": \"data2\"}");
-
-        when(runtimeService.startProcessInstanceByKey(eq("multiprocess"), any(Map.class)))
-            .thenThrow(new RuntimeException("Multiprocess start failed"));
-
-        // Act
-        ResponseEntity<Map<String, Object>> response = processController.executeProcessMulti(request);
-
-        // Assert
-        assertEquals(500, response.getStatusCode().value());
-        Map<String, Object> responseBody = response.getBody();
-        assertNotNull(responseBody);
-        assertEquals("多重流程執行失敗", responseBody.get("error"));
-        assertEquals("Multiprocess start failed", responseBody.get("message"));
-    }
-
-    // ===== /parallelexecute 端點測試 =====
-
-    @Test
-    void testExecuteProcessParallel_SuccessWithMultipleAPIs() {
-        // Arrange
-        ProcessController.ParallelProcessRequest request = new ProcessController.ParallelProcessRequest();
+    void testExecuteProcess_Parallel_Success() {
+        // Arrange - 測試平行處理
+        ProcessController.ProcessRequest request = new ProcessController.ProcessRequest();
+        request.setProcessType("parallel");
         List<ProcessController.ApiCallRequest> apiCalls = Arrays.asList(
-            createApiCallRequest("https://api1.example.com/test", "{\"data1\": \"test1\"}", null),
-            createApiCallRequest("https://api2.example.com/test", "{\"data2\": \"test2\"}", null),
-            createApiCallRequest("https://api3.example.com/test", "{\"data3\": \"test3\"}", null)
+            createApiCallRequest("https://api1.example.com/test", "{\"test1\": \"data1\"}", null),
+            createApiCallRequest("https://api2.example.com/test", "{\"test2\": \"data2\"}", null)
         );
         request.setApiCalls(apiCalls);
 
@@ -315,17 +105,15 @@ class ProcessControllerTest {
         when(processInstance.getId()).thenReturn("parallel-process-123");
         when(processInstance.isEnded()).thenReturn(true);
 
-        // 模擬結果集合（使用標準的 Multi-Instance output collection）
+        // 模擬執行結果
         List<Map<String, Object>> results = Arrays.asList(
-            createResultMap(0, "https://api1.example.com/test", "SUCCESS", "{\"result1\": \"processed1\"}"),
-            createResultMap(1, "https://api2.example.com/test", "SUCCESS", "{\"result2\": \"processed2\"}"),
-            createResultMap(2, "https://api3.example.com/test", "SUCCESS", "{\"result3\": \"processed3\"}")
+            createResultMap(0, "https://api1.example.com/test", "SUCCESS", "{\"result1\": \"test1\"}"),
+            createResultMap(1, "https://api2.example.com/test", "SUCCESS", "{\"result2\": \"test2\"}")
         );
-
         List<HistoricVariableInstance> historicVariables = createHistoricVariables(Map.of(
             "results", results,
-            "nrOfCompletedInstances", 3,
-            "nrOfInstances", 3
+            "nrOfCompletedInstances", 2,
+            "nrOfInstances", 2
         ));
 
         when(historyService.createHistoricVariableInstanceQuery()).thenReturn(historicVariableInstanceQuery);
@@ -333,37 +121,133 @@ class ProcessControllerTest {
         when(historicVariableInstanceQuery.list()).thenReturn(historicVariables);
 
         // Act
-        ResponseEntity<Map<String, Object>> response = processController.executeProcessParallel(request);
+        ResponseEntity<Map<String, Object>> response = processController.executeProcess(request);
 
         // Assert
         assertEquals(200, response.getStatusCode().value());
         Map<String, Object> responseBody = response.getBody();
         assertNotNull(responseBody);
         assertEquals("parallel-process-123", responseBody.get("processInstanceId"));
+        assertEquals("parallel", responseBody.get("processType"));
         assertEquals("SUCCESS", responseBody.get("overallStatus"));
-        assertEquals(3, responseBody.get("successCount"));
-        assertEquals(3, responseBody.get("totalCount"));
-        assertEquals(3, responseBody.get("completedInstances"));
-        assertEquals(3, responseBody.get("totalInstances"));
-        assertEquals(1.0, responseBody.get("completionRate"));
+        assertEquals(2, responseBody.get("successCount"));
+        assertEquals(2, responseBody.get("totalCount"));
 
-        @SuppressWarnings("unchecked")
-        List<Map<String, Object>> responseResults = (List<Map<String, Object>>) responseBody.get("results");
-        assertEquals(3, responseResults.size());
-        assertEquals("SUCCESS", responseResults.get(0).get("status"));
-        assertEquals("https://api1.example.com/test", responseResults.get(0).get("apiUrl"));
-
+        // 驗證服務調用
         verify(runtimeService).startProcessInstanceByKey(eq("parallelprocess"), any(Map.class));
     }
 
     @Test
-    void testExecuteProcessParallel_PartialSuccess() {
-        // Arrange
-        ProcessController.ParallelProcessRequest request = new ProcessController.ParallelProcessRequest();
+    void testExecuteProcess_DefaultToSequential() {
+        // Arrange - 測試預設為循序處理
+        ProcessController.ProcessRequest request = new ProcessController.ProcessRequest();
+        // processType 未設置，應預設為 sequential
         List<ProcessController.ApiCallRequest> apiCalls = Arrays.asList(
-            createApiCallRequest("https://api1.example.com/test", "{\"data1\": \"test1\"}", null),
-            createApiCallRequest("https://api2.example.com/test", "{\"data2\": \"test2\"}", null),
-            createApiCallRequest("https://api3.example.com/test", "{\"data3\": \"test3\"}", null)
+            createApiCallRequest("https://api.example.com/test", "{\"test\": \"data\"}", null)
+        );
+        request.setApiCalls(apiCalls);
+
+        when(runtimeService.startProcessInstanceByKey(eq("sequentialprocess"), any(Map.class)))
+            .thenReturn(processInstance);
+        when(processInstance.getId()).thenReturn("sequential-process-123");
+        when(processInstance.isEnded()).thenReturn(true);
+
+        List<Map<String, Object>> results = Arrays.asList(
+            createResultMap(0, "https://api.example.com/test", "SUCCESS", "{\"result\": \"test\"}")
+        );
+        List<HistoricVariableInstance> historicVariables = createHistoricVariables(Map.of(
+            "results", results
+        ));
+
+        when(historyService.createHistoricVariableInstanceQuery()).thenReturn(historicVariableInstanceQuery);
+        when(historicVariableInstanceQuery.processInstanceId("sequential-process-123")).thenReturn(historicVariableInstanceQuery);
+        when(historicVariableInstanceQuery.list()).thenReturn(historicVariables);
+
+        // Act
+        ResponseEntity<Map<String, Object>> response = processController.executeProcess(request);
+
+        // Assert
+        assertEquals(200, response.getStatusCode().value());
+        Map<String, Object> responseBody = response.getBody();
+        assertEquals("sequential", responseBody.get("processType"));
+        
+        // 驗證預設使用 sequential 流程
+        verify(runtimeService).startProcessInstanceByKey(eq("sequentialprocess"), any(Map.class));
+    }
+
+    @Test
+    void testExecuteProcess_InvalidProcessType() {
+        // Arrange - 測試無效的流程類型
+        ProcessController.ProcessRequest request = new ProcessController.ProcessRequest();
+        request.setProcessType("invalid");
+        List<ProcessController.ApiCallRequest> apiCalls = Arrays.asList(
+            createApiCallRequest("https://api.example.com/test", "{\"test\": \"data\"}", null)
+        );
+        request.setApiCalls(apiCalls);
+
+        // Act
+        ResponseEntity<Map<String, Object>> response = processController.executeProcess(request);
+
+        // Assert
+        assertEquals(500, response.getStatusCode().value());
+        Map<String, Object> responseBody = response.getBody();
+        assertNotNull(responseBody);
+        assertEquals("流程執行失敗", responseBody.get("error"));
+        assertTrue(responseBody.get("message").toString().contains("processType 必須是 'parallel' 或 'sequential'"));
+
+        // 驗證沒有調用 RuntimeService
+        verify(runtimeService, never()).startProcessInstanceByKey(anyString(), any(Map.class));
+    }
+
+    @Test
+    void testExecuteProcess_EmptyApiCalls() {
+        // Arrange - 測試空的 API 呼叫列表
+        ProcessController.ProcessRequest request = new ProcessController.ProcessRequest();
+        request.setProcessType("sequential");
+        request.setApiCalls(new ArrayList<>());
+
+        // Act
+        ResponseEntity<Map<String, Object>> response = processController.executeProcess(request);
+
+        // Assert
+        assertEquals(500, response.getStatusCode().value());
+        Map<String, Object> responseBody = response.getBody();
+        assertNotNull(responseBody);
+        assertEquals("流程執行失敗", responseBody.get("error"));
+        assertTrue(responseBody.get("message").toString().contains("至少需要提供一個 API 呼叫請求"));
+
+        verify(runtimeService, never()).startProcessInstanceByKey(anyString(), any(Map.class));
+    }
+
+    @Test
+    void testExecuteProcess_NullApiCalls() {
+        // Arrange - 測試 null 的 API 呼叫列表
+        ProcessController.ProcessRequest request = new ProcessController.ProcessRequest();
+        request.setProcessType("parallel");
+        request.setApiCalls(null);
+
+        // Act
+        ResponseEntity<Map<String, Object>> response = processController.executeProcess(request);
+
+        // Assert
+        assertEquals(500, response.getStatusCode().value());
+        Map<String, Object> responseBody = response.getBody();
+        assertNotNull(responseBody);
+        assertEquals("流程執行失敗", responseBody.get("error"));
+        assertTrue(responseBody.get("message").toString().contains("至少需要提供一個 API 呼叫請求"));
+
+        verify(runtimeService, never()).startProcessInstanceByKey(anyString(), any(Map.class));
+    }
+
+    @Test
+    void testExecuteProcess_PartialSuccess() {
+        // Arrange - 測試部分成功
+        ProcessController.ProcessRequest request = new ProcessController.ProcessRequest();
+        request.setProcessType("parallel");
+        List<ProcessController.ApiCallRequest> apiCalls = Arrays.asList(
+            createApiCallRequest("https://api1.example.com/test", "{\"test1\": \"data1\"}", null),
+            createApiCallRequest("https://api2.example.com/test", "{\"test2\": \"data2\"}", null),
+            createApiCallRequest("https://api3.example.com/test", "{\"test3\": \"data3\"}", null)
         );
         request.setApiCalls(apiCalls);
 
@@ -380,9 +264,7 @@ class ProcessControllerTest {
         );
 
         List<HistoricVariableInstance> historicVariables = createHistoricVariables(Map.of(
-            "results", results,
-            "nrOfCompletedInstances", 3,
-            "nrOfInstances", 3
+            "results", results
         ));
 
         when(historyService.createHistoricVariableInstanceQuery()).thenReturn(historicVariableInstanceQuery);
@@ -390,7 +272,7 @@ class ProcessControllerTest {
         when(historicVariableInstanceQuery.list()).thenReturn(historicVariables);
 
         // Act
-        ResponseEntity<Map<String, Object>> response = processController.executeProcessParallel(request);
+        ResponseEntity<Map<String, Object>> response = processController.executeProcess(request);
 
         // Assert
         assertEquals(200, response.getStatusCode().value());
@@ -407,183 +289,10 @@ class ProcessControllerTest {
     }
 
     @Test
-    void testExecuteProcessParallel_AllFailed() {
-        // Arrange
-        ProcessController.ParallelProcessRequest request = new ProcessController.ParallelProcessRequest();
-        List<ProcessController.ApiCallRequest> apiCalls = Arrays.asList(
-            createApiCallRequest("https://api1.example.com/test", "{\"data1\": \"test1\"}", null),
-            createApiCallRequest("https://api2.example.com/test", "{\"data2\": \"test2\"}", null)
-        );
-        request.setApiCalls(apiCalls);
-
-        when(runtimeService.startProcessInstanceByKey(eq("parallelprocess"), any(Map.class)))
-            .thenReturn(processInstance);
-        when(processInstance.getId()).thenReturn("parallel-process-123");
-        when(processInstance.isEnded()).thenReturn(true);
-
-        // 模擬全部失敗的結果
-        List<Map<String, Object>> results = Arrays.asList(
-            createResultMap(0, "https://api1.example.com/test", "FAILED", null),
-            createResultMap(1, "https://api2.example.com/test", "FAILED", null)
-        );
-
-        List<HistoricVariableInstance> historicVariables = createHistoricVariables(Map.of(
-            "results", results
-        ));
-
-        when(historyService.createHistoricVariableInstanceQuery()).thenReturn(historicVariableInstanceQuery);
-        when(historicVariableInstanceQuery.processInstanceId("parallel-process-123")).thenReturn(historicVariableInstanceQuery);
-        when(historicVariableInstanceQuery.list()).thenReturn(historicVariables);
-
-        // Act
-        ResponseEntity<Map<String, Object>> response = processController.executeProcessParallel(request);
-
-        // Assert
-        assertEquals(200, response.getStatusCode().value());
-        Map<String, Object> responseBody = response.getBody();
-        assertEquals("FAILURE", responseBody.get("overallStatus"));
-        assertEquals(0, responseBody.get("successCount"));
-        assertEquals(2, responseBody.get("totalCount"));
-    }
-
-    @Test
-    void testExecuteProcessParallel_EmptyApiCalls() {
-        // Arrange - 空的 API 呼叫列表
-        ProcessController.ParallelProcessRequest request = new ProcessController.ParallelProcessRequest();
-        request.setApiCalls(new ArrayList<>());
-
-        // Act
-        ResponseEntity<Map<String, Object>> response = processController.executeProcessParallel(request);
-
-        // Assert
-        assertEquals(500, response.getStatusCode().value());
-        Map<String, Object> responseBody = response.getBody();
-        assertNotNull(responseBody);
-        assertEquals("平行流程執行失敗", responseBody.get("error"));
-        assertTrue(responseBody.get("message").toString().contains("至少需要提供一個 API 呼叫請求"));
-
-        // 驗證沒有調用 RuntimeService
-        verify(runtimeService, never()).startProcessInstanceByKey(anyString(), any(Map.class));
-    }
-
-    @Test
-    void testExecuteProcessParallel_NullApiCalls() {
-        // Arrange - null 的 API 呼叫列表
-        ProcessController.ParallelProcessRequest request = new ProcessController.ParallelProcessRequest();
-        request.setApiCalls(null);
-
-        // Act
-        ResponseEntity<Map<String, Object>> response = processController.executeProcessParallel(request);
-
-        // Assert
-        assertEquals(500, response.getStatusCode().value());
-        Map<String, Object> responseBody = response.getBody();
-        assertNotNull(responseBody);
-        assertEquals("平行流程執行失敗", responseBody.get("error"));
-        assertTrue(responseBody.get("message").toString().contains("至少需要提供一個 API 呼叫請求"));
-
-        verify(runtimeService, never()).startProcessInstanceByKey(anyString(), any(Map.class));
-    }
-
-    @Test
-    void testExecuteProcessParallel_ProcessStillRunning() {
-        // Arrange
-        ProcessController.ParallelProcessRequest request = new ProcessController.ParallelProcessRequest();
-        List<ProcessController.ApiCallRequest> apiCalls = Arrays.asList(
-            createApiCallRequest("https://api1.example.com/test", "{\"data1\": \"test1\"}", null)
-        );
-        request.setApiCalls(apiCalls);
-
-        when(runtimeService.startProcessInstanceByKey(eq("parallelprocess"), any(Map.class)))
-            .thenReturn(processInstance);
-        when(processInstance.getId()).thenReturn("parallel-process-123");
-        when(processInstance.isEnded()).thenReturn(false); // 流程尚未結束
-
-        // 模擬從運行時取得變數（但沒有結果集合）
-        Map<String, Object> runtimeVariables = Map.of(
-            "apiCalls", apiCalls,
-            "result_0", "{\"result1\": \"processed1\"}",
-            "status_0", "SUCCESS"
-        );
-        when(runtimeService.getVariables("parallel-process-123")).thenReturn(runtimeVariables);
-
-        // Act
-        ResponseEntity<Map<String, Object>> response = processController.executeProcessParallel(request);
-
-        // Assert
-        assertEquals(200, response.getStatusCode().value());
-        Map<String, Object> responseBody = response.getBody();
-        assertEquals("SUCCESS", responseBody.get("overallStatus"));
-
-        // 驗證沒有調用歷史服務
-        verify(historyService, never()).createHistoricVariableInstanceQuery();
-        verify(runtimeService).getVariables("parallel-process-123");
-    }
-
-    @Test
-    void testExecuteProcessParallel_ProcessExecutionException() {
-        // Arrange
-        ProcessController.ParallelProcessRequest request = new ProcessController.ParallelProcessRequest();
-        List<ProcessController.ApiCallRequest> apiCalls = Arrays.asList(
-            createApiCallRequest("https://api1.example.com/test", "{\"data1\": \"test1\"}", null)
-        );
-        request.setApiCalls(apiCalls);
-
-        when(runtimeService.startProcessInstanceByKey(eq("parallelprocess"), any(Map.class)))
-            .thenThrow(new RuntimeException("Parallel process start failed"));
-
-        // Act
-        ResponseEntity<Map<String, Object>> response = processController.executeProcessParallel(request);
-
-        // Assert
-        assertEquals(500, response.getStatusCode().value());
-        Map<String, Object> responseBody = response.getBody();
-        assertNotNull(responseBody);
-        assertEquals("平行流程執行失敗", responseBody.get("error"));
-        assertEquals("Parallel process start failed", responseBody.get("message"));
-    }
-
-    @Test
-    void testExecuteProcessParallel_SingleApiCall() {
-        // Arrange - 測試單一 API 呼叫
-        ProcessController.ParallelProcessRequest request = new ProcessController.ParallelProcessRequest();
-        List<ProcessController.ApiCallRequest> apiCalls = Arrays.asList(
-            createApiCallRequest("https://api.example.com/test", "{\"data\": \"test\"}", "customTask")
-        );
-        request.setApiCalls(apiCalls);
-
-        when(runtimeService.startProcessInstanceByKey(eq("parallelprocess"), any(Map.class)))
-            .thenReturn(processInstance);
-        when(processInstance.getId()).thenReturn("parallel-process-123");
-        when(processInstance.isEnded()).thenReturn(true);
-
-        List<Map<String, Object>> results = Arrays.asList(
-            createResultMap(0, "https://api.example.com/test", "SUCCESS", "{\"result\": \"processed\"}")
-        );
-
-        List<HistoricVariableInstance> historicVariables = createHistoricVariables(Map.of(
-            "results", results
-        ));
-
-        when(historyService.createHistoricVariableInstanceQuery()).thenReturn(historicVariableInstanceQuery);
-        when(historicVariableInstanceQuery.processInstanceId("parallel-process-123")).thenReturn(historicVariableInstanceQuery);
-        when(historicVariableInstanceQuery.list()).thenReturn(historicVariables);
-
-        // Act
-        ResponseEntity<Map<String, Object>> response = processController.executeProcessParallel(request);
-
-        // Assert
-        assertEquals(200, response.getStatusCode().value());
-        Map<String, Object> responseBody = response.getBody();
-        assertEquals("SUCCESS", responseBody.get("overallStatus"));
-        assertEquals(1, responseBody.get("successCount"));
-        assertEquals(1, responseBody.get("totalCount"));
-    }
-
-    @Test
-    void testExecuteProcessParallel_LargeBatchSize() {
-        // Arrange - 測試批次大小限制
-        ProcessController.ParallelProcessRequest request = new ProcessController.ParallelProcessRequest();
+    void testExecuteProcess_BatchSizeLimit() {
+        // Arrange - 測試批次大小限制（僅適用於 parallel 模式）
+        ProcessController.ProcessRequest request = new ProcessController.ProcessRequest();
+        request.setProcessType("parallel");
         List<ProcessController.ApiCallRequest> apiCalls = new ArrayList<>();
         
         // 創建 150 個 API 呼叫（超過批次大小限制 100）
@@ -604,18 +313,75 @@ class ProcessControllerTest {
         when(historicVariableInstanceQuery.list()).thenReturn(new ArrayList<>());
 
         // Act
-        ResponseEntity<Map<String, Object>> response = processController.executeProcessParallel(request);
+        ResponseEntity<Map<String, Object>> response = processController.executeProcess(request);
 
         // Assert
         assertEquals(200, response.getStatusCode().value());
         
         // 驗證批次大小被限制為 100 - 使用 ArgumentCaptor 來捕獲參數
+        @SuppressWarnings("unchecked")
         ArgumentCaptor<Map<String, Object>> variablesCaptor = ArgumentCaptor.forClass(Map.class);
         verify(runtimeService).startProcessInstanceByKey(eq("parallelprocess"), variablesCaptor.capture());
         
         Map<String, Object> capturedVariables = variablesCaptor.getValue();
         Integer batchSize = (Integer) capturedVariables.get("batchSize");
         assertEquals(100, batchSize, "批次大小應該被限制為 100");
+    }
+
+    @Test
+    void testExecuteProcess_ProcessStillRunning() {
+        // Arrange - 測試流程尚未結束的情況
+        ProcessController.ProcessRequest request = new ProcessController.ProcessRequest();
+        request.setProcessType("sequential");
+        List<ProcessController.ApiCallRequest> apiCalls = Arrays.asList(
+            createApiCallRequest("https://api.example.com/test", "{\"data\": \"test\"}", null)
+        );
+        request.setApiCalls(apiCalls);
+
+        when(runtimeService.startProcessInstanceByKey(eq("sequentialprocess"), any(Map.class)))
+            .thenReturn(processInstance);
+        when(processInstance.getId()).thenReturn("sequential-process-123");
+        when(processInstance.isEnded()).thenReturn(false); // 流程尚未結束
+
+        // 模擬從運行時取得變數（但沒有結果集合）
+        Map<String, Object> runtimeVariables = Map.of(
+            "apiCalls", apiCalls,
+            "status", "SUCCESS"
+        );
+        when(runtimeService.getVariables("sequential-process-123")).thenReturn(runtimeVariables);
+
+        // Act
+        ResponseEntity<Map<String, Object>> response = processController.executeProcess(request);
+
+        // Assert
+        assertEquals(200, response.getStatusCode().value());
+
+        // 驗證沒有調用歷史服務
+        verify(historyService, never()).createHistoricVariableInstanceQuery();
+        verify(runtimeService).getVariables("sequential-process-123");
+    }
+
+    @Test
+    void testExecuteProcess_Exception() {
+        // Arrange
+        ProcessController.ProcessRequest request = new ProcessController.ProcessRequest();
+        request.setProcessType("sequential");
+        List<ProcessController.ApiCallRequest> apiCalls = Arrays.asList(
+            createApiCallRequest("https://api.example.com/test", "{\"test\": \"data\"}", null)
+        );
+        request.setApiCalls(apiCalls);
+
+        when(runtimeService.startProcessInstanceByKey(eq("sequentialprocess"), any(Map.class)))
+            .thenThrow(new RuntimeException("Process execution failed"));
+
+        // Act
+        ResponseEntity<Map<String, Object>> response = processController.executeProcess(request);
+
+        // Assert
+        assertEquals(500, response.getStatusCode().value());
+        assertNotNull(response.getBody());
+        assertEquals("流程執行失敗", response.getBody().get("error"));
+        assertEquals("Process execution failed", response.getBody().get("message"));
     }
 
     // 輔助方法：創建模擬的歷史變數

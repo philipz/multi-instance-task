@@ -19,7 +19,8 @@ This is a Camunda BPM Spring Boot application that provides workflow orchestrati
 - `Application.java` - Main Spring Boot application entry point
 - `ProcessController.java` - REST controller for executing BPMN processes with simplified API
 - `RestServiceDelegate.java` - Camunda service task delegate that makes HTTP calls to external APIs
-- `process.bpmn` - BPMN process definition with a single REST API service task
+- `sequentialprocess.bpmn` - BPMN process definition for sequential API execution
+- `parallelprocess.bpmn` - BPMN process definition for parallel API execution using Multi-Instance
 - `application.yaml` - Configuration for database and Camunda admin user
 
 ## Development Commands
@@ -35,8 +36,14 @@ mvn spring-boot:run
 # Build JAR package
 mvn clean package
 
-# Run tests (when available)
+# Run tests
 mvn test
+
+# Run specific test class
+mvn test -Dtest=ProcessControllerTest
+
+# Run tests with coverage
+mvn clean test jacoco:report
 ```
 
 ### Camunda Access
@@ -47,25 +54,74 @@ mvn test
 ### Process Deployment and Execution
 
 #### Using Custom REST Controller (Recommended)
+
+**Sequential Processing:**
 ```bash
-# Execute process via custom controller
+# Execute sequential process
 curl -X POST http://localhost:8080/api/process/execute \
   -H "Content-Type: application/json" \
   -d '{
-    "apiUrl": "https://api.example.com/endpoint",
-    "payload": "{\"data\": \"test\"}"
+    "processType": "sequential",
+    "apiCalls": [
+      {
+        "apiUrl": "https://api.example.com/endpoint",
+        "payload": "{\"data\": \"test\"}"
+      }
+    ]
+  }'
+```
+
+**Parallel Processing:**
+```bash
+# Execute parallel process
+curl -X POST http://localhost:8080/api/process/execute \
+  -H "Content-Type: application/json" \
+  -d '{
+    "processType": "parallel",
+    "apiCalls": [
+      {
+        "apiUrl": "https://api1.example.com/endpoint",
+        "payload": "{\"data1\": \"test1\"}"
+      },
+      {
+        "apiUrl": "https://api2.example.com/endpoint",
+        "payload": "{\"data2\": \"test2\"}"
+      }
+    ]
   }'
 ```
 
 #### Using Camunda REST API (Direct)
+
+**Sequential Process:**
 ```bash
-# Start a process instance via Camunda REST API
-curl -X POST http://localhost:8080/engine-rest/process-definition/key/process/start \
+# Start sequential process via Camunda REST API
+curl -X POST http://localhost:8080/engine-rest/process-definition/key/sequentialprocess/start \
   -H "Content-Type: application/json" \
   -d '{
     "variables": {
-      "apiUrl": {"value": "https://api.example.com/endpoint", "type": "String"},
-      "requestPayload": {"value": "{\"data\": \"test\"}", "type": "String"}
+      "apiCalls": {
+        "value": "[{\"apiUrl\": \"https://api.example.com/endpoint\", \"payload\": \"{\\\"data\\\": \\\"test\\\"}\"}]",
+        "type": "Json"
+      },
+      "totalApiCalls": {"value": 1, "type": "Integer"}
+    }
+  }'
+```
+
+**Parallel Process:**
+```bash
+# Start parallel process via Camunda REST API
+curl -X POST http://localhost:8080/engine-rest/process-definition/key/parallelprocess/start \
+  -H "Content-Type: application/json" \
+  -d '{
+    "variables": {
+      "apiCalls": {
+        "value": "[{\"apiUrl\": \"https://api1.example.com\", \"payload\": \"{\\\"data1\\\": \\\"test1\\\"}\"}, {\"apiUrl\": \"https://api2.example.com\", \"payload\": \"{\\\"data2\\\": \\\"test2\\\"}\"}]",
+        "type": "Json"
+      },
+      "totalApiCalls": {"value": 2, "type": "Integer"},
+      "batchSize": {"value": 100, "type": "Integer"}
     }
   }'
 ```
@@ -74,24 +130,72 @@ curl -X POST http://localhost:8080/engine-rest/process-definition/key/process/st
 
 ### Custom REST Controller API
 
-The `ProcessController` provides a simplified REST API endpoint to execute BPMN processes:
+The `ProcessController` provides a unified REST API endpoint to execute BPMN processes with support for both sequential and parallel processing:
 
 **Endpoint**: `POST /api/process/execute`
 
-**Request Body**:
+**Request Body Structure**:
 ```json
 {
-  "apiUrl": "https://api.example.com/endpoint",
-  "payload": "{\"data\": \"test\"}"
+  "processType": "sequential|parallel",
+  "apiCalls": [
+    {
+      "apiUrl": "https://api.example.com/endpoint",
+      "payload": "{\"data\": \"test\"}",
+      "taskId": "optional-custom-task-id"
+    }
+  ]
 }
 ```
+
+**Parameters**:
+- `processType`: "sequential" (default) or "parallel"
+- `apiCalls`: Array of API call definitions
+  - `apiUrl`: Target API endpoint URL
+  - `payload`: JSON string payload for the API call
+  - `taskId`: Optional custom task identifier
 
 **Success Response** (200):
 ```json
 {
   "processInstanceId": "process-instance-123",
-  "status": "SUCCESS",
-  "responseData": "{\"result\": \"API response data\"}"
+  "processType": "sequential",
+  "overallStatus": "SUCCESS",
+  "successCount": 1,
+  "totalCount": 1,
+  "results": [
+    {
+      "index": 0,
+      "apiUrl": "https://api.example.com/endpoint",
+      "status": "SUCCESS",
+      "responseData": "{\"result\": \"API response data\"}"
+    }
+  ]
+}
+```
+
+**Partial Success Response** (200):
+```json
+{
+  "processInstanceId": "process-instance-456",
+  "processType": "parallel",
+  "overallStatus": "PARTIAL_SUCCESS",
+  "successCount": 1,
+  "totalCount": 2,
+  "results": [
+    {
+      "index": 0,
+      "apiUrl": "https://api1.example.com/endpoint",
+      "status": "SUCCESS",
+      "responseData": "{\"result1\": \"data\"}"
+    },
+    {
+      "index": 1,
+      "apiUrl": "https://api2.example.com/endpoint",
+      "status": "FAILED",
+      "responseData": null
+    }
+  ]
 }
 ```
 
@@ -104,13 +208,34 @@ The `ProcessController` provides a simplified REST API endpoint to execute BPMN 
 ```
 
 ### Process Variables
-The `RestServiceDelegate` expects these process variables:
-- `apiUrl` (String) - Target REST API endpoint URL
-- `requestPayload` (String) - JSON payload to send to the API
 
-The delegate sets these variables after execution:
+#### For Sequential Processing (`sequentialprocess`)
+The process expects these variables:
+- `apiCalls` (List<Object>) - Array of API call definitions
+- `totalApiCalls` (Integer) - Total number of API calls
+
+#### For Parallel Processing (`parallelprocess`)
+The process expects these variables:
+- `apiCalls` (List<Object>) - Array of API call definitions for Multi-Instance execution
+- `totalApiCalls` (Integer) - Total number of API calls
+- `batchSize` (Integer) - Maximum batch size for parallel execution (default: 100)
+
+#### API Call Structure
+Each API call object contains:
+- `apiUrl` (String) - Target REST API endpoint URL
+- `payload` (String) - JSON payload to send to the API
+- `taskId` (String, optional) - Custom task identifier
+
+#### Variables Set After Execution
+- `results` (List<Object>) - Collection of execution results
+- `nrOfInstances` (Integer) - Total number of instances (parallel only)
+- `nrOfCompletedInstances` (Integer) - Number of completed instances (parallel only)
+
+Each result object contains:
+- `index` (Integer) - Index of the API call
+- `apiUrl` (String) - URL that was called
+- `status` (String) - "SUCCESS" or "FAILED"
 - `responseData` (String) - Response body from the API call
-- `status` (String) - "SUCCESS" for successful calls
 
 ### Error Handling
 - **Client errors (4xx)**: Throws `BpmnError` with code "CLIENT_ERROR"
@@ -118,9 +243,25 @@ The delegate sets these variables after execution:
 - **Network/timeout errors**: Throws generic `Exception` causing process failure
 
 ### Service Task Configuration
-Service tasks in BPMN should reference the delegate using:
+
+#### Sequential Process Service Tasks
+Service tasks in sequential BPMN should reference the delegate using:
 ```xml
 camunda:delegateExpression="restServiceDelegate"
+```
+
+#### Parallel Process Service Tasks
+Service tasks in parallel BPMN (Multi-Instance) should reference the delegate using:
+```xml
+camunda:delegateExpression="restServiceDelegate"
+```
+
+With Multi-Instance configuration:
+```xml
+camunda:collection="apiCalls"
+camunda:elementVariable="apiCall"
+camunda:outputCollection="results"
+camunda:outputElement="result"
 ```
 
 ## Testing Strategy

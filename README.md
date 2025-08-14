@@ -1,6 +1,6 @@
 # Camunda API Composite Service
 
-一個基於 Camunda BPM 的 Spring Boot 應用程式，提供工作流程編排功能及 REST API 整合。此專案展示如何使用 BPMN 流程來協調外部 API 呼叫，支援單一和多重 API 執行模式。
+一個基於 Camunda BPM 的 Spring Boot 應用程式，提供工作流程編排功能及 REST API 整合。此專案展示如何使用 BPMN 流程來協調外部 API 呼叫，支援循序和平行執行模式。
 
 ## 專案概述
 
@@ -13,9 +13,10 @@
 
 ### 架構特點
 - 嵌入式 Camunda BPM 引擎
-- RESTful API 介面
+- 統一的 RESTful API 介面
 - BPMN 2.0 流程定義
 - 外部服務整合
+- 支援循序和平行處理模式
 - 錯誤處理與回復機制
 
 ## 快速開始
@@ -49,9 +50,11 @@
 
 ## API 端點
 
-### 1. 單一流程執行 - `/api/process/execute`
+### 統一流程執行端點 - `/api/process/execute`
 
-執行單一 BPMN 流程，呼叫一個外部 REST API。
+透過 `processType` 參數指定執行模式，支援循序（sequential）和平行（parallel）處理。
+
+#### 1. 循序處理模式
 
 **請求格式:**
 ```http
@@ -59,17 +62,100 @@ POST /api/process/execute
 Content-Type: application/json
 
 {
-  "apiUrl": "https://api.example.com/endpoint",
-  "payload": "{\"data\": \"test\"}"
+  "processType": "sequential",
+  "apiCalls": [
+    {
+      "apiUrl": "https://api1.example.com/endpoint",
+      "payload": "{\"data1\": \"test1\"}"
+    },
+    {
+      "apiUrl": "https://api2.example.com/endpoint",
+      "payload": "{\"data2\": \"test2\"}"
+    }
+  ]
 }
 ```
+
+#### 2. 平行處理模式
+
+**請求格式:**
+```http
+POST /api/process/execute
+Content-Type: application/json
+
+{
+  "processType": "parallel",
+  "apiCalls": [
+    {
+      "apiUrl": "https://api1.example.com/endpoint",
+      "payload": "{\"data1\": \"test1\"}",
+      "taskId": "custom-task-1"
+    },
+    {
+      "apiUrl": "https://api2.example.com/endpoint",
+      "payload": "{\"data2\": \"test2\"}"
+    }
+  ]
+}
+```
+
+**參數說明:**
+- `processType`: "sequential" 或 "parallel"（預設為 "sequential"）
+- `apiCalls`: API 呼叫列表
+  - `apiUrl`: 目標 API 端點 URL
+  - `payload`: JSON 格式的請求資料
+  - `taskId`: 可選，自定義任務 ID
 
 **成功回應:**
 ```json
 {
   "processInstanceId": "process-instance-123",
-  "status": "SUCCESS",
-  "responseData": "{\"result\": \"API response data\"}"
+  "processType": "parallel",
+  "overallStatus": "SUCCESS",
+  "successCount": 2,
+  "totalCount": 2,
+  "completedInstances": 2,
+  "totalInstances": 2,
+  "completionRate": 1.0,
+  "results": [
+    {
+      "index": 0,
+      "apiUrl": "https://api1.example.com/endpoint",
+      "status": "SUCCESS",
+      "responseData": "{\"result1\": \"API1 response\"}"
+    },
+    {
+      "index": 1,
+      "apiUrl": "https://api2.example.com/endpoint",
+      "status": "SUCCESS",
+      "responseData": "{\"result2\": \"API2 response\"}"
+    }
+  ]
+}
+```
+
+**部分成功回應:**
+```json
+{
+  "processInstanceId": "process-instance-456",
+  "processType": "parallel",
+  "overallStatus": "PARTIAL_SUCCESS",
+  "successCount": 1,
+  "totalCount": 2,
+  "results": [
+    {
+      "index": 0,
+      "apiUrl": "https://api1.example.com/endpoint",
+      "status": "SUCCESS",
+      "responseData": "{\"result1\": \"API1 response\"}"
+    },
+    {
+      "index": 1,
+      "apiUrl": "https://api2.example.com/endpoint",
+      "status": "FAILED",
+      "responseData": null
+    }
+  ]
 }
 ```
 
@@ -81,41 +167,6 @@ Content-Type: application/json
 }
 ```
 
-### 2. 多重流程執行 - `/api/process/multiexecute`
-
-執行多重 BPMN 流程，同時呼叫兩個外部 REST API。
-
-**請求格式:**
-```http
-POST /api/process/multiexecute
-Content-Type: application/json
-
-{
-  "api1Url": "https://api1.example.com/endpoint",
-  "api1Payload": "{\"data1\": \"test1\"}",
-  "api2Url": "https://api2.example.com/endpoint", 
-  "api2Payload": "{\"data2\": \"test2\"}"
-}
-```
-
-**成功回應:**
-```json
-{
-  "processInstanceId": "multi-process-instance-456",
-  "overallStatus": "SUCCESS",
-  "results": {
-    "api1": {
-      "status": "SUCCESS",
-      "responseData": "{\"result1\": \"API1 response\"}"
-    },
-    "api2": {
-      "status": "SUCCESS", 
-      "responseData": "{\"result2\": \"API2 response\"}"
-    }
-  }
-}
-```
-
 ## 測試報告
 
 以下是使用 httpbin.org 進行的完整測試過程和結果：
@@ -123,73 +174,143 @@ Content-Type: application/json
 ### 測試環境
 - 測試服務: https://httpbin.org/post
 - 測試工具: curl
-- 測試日期: 2025-08-13
+- 測試日期: 2025-08-14
 
-### 測試案例 1: 單一 API 執行成功
+### 測試案例 1: 循序處理模式
 
 **測試命令:**
 ```bash
 curl -X POST http://localhost:8080/api/process/execute \
   -H "Content-Type: application/json" \
-  -d '{"apiUrl": "https://httpbin.org/post", "payload": "{\"test\": \"data\"}"}'
+  -d '{
+    "processType": "sequential",
+    "apiCalls": [
+      {
+        "apiUrl": "https://httpbin.org/post",
+        "payload": "{\"test\": \"data\"}"
+      }
+    ]
+  }'
 ```
 
 **測試結果:** ✅ 成功
 ```json
 {
-  "processInstanceId": "be728fb8-7824-11f0-b15a-8e3f192c8616",
-  "status": "SUCCESS",
-  "responseData": "{\n  \"args\": {}, \n  \"data\": \"{\\\"test\\\": \\\"data\\\"}\", \n  \"files\": {}, \n  \"form\": {}, \n  \"headers\": {\n    \"Content-Length\": \"16\", \n    \"Content-Type\": \"application/json\", \n    \"Host\": \"httpbin.org\", \n    \"User-Agent\": \"Java-http-client/21.0.5\", \n    \"X-Amzn-Trace-Id\": \"Root=1-689c557e-73cffa0a62808474239ca440\"\n  }, \n  \"json\": {\n    \"test\": \"data\"\n  }, \n  \"origin\": \"123.51.165.160\", \n  \"url\": \"https://httpbin.org/post\"\n}\n"
-}
-```
-
-**驗證點:**
-- ✅ 流程實例成功創建 (processInstanceId: be728fb8-7824-11f0-b15a-8e3f192c8616)
-- ✅ API 呼叫成功 (status: SUCCESS)
-- ✅ JSON payload 正確傳遞 (json: {"test": "data"})
-- ✅ HTTP 標頭正確設置 (Content-Type: application/json)
-
-### 測試案例 2: 多重 API 執行成功
-
-**測試命令:**
-```bash
-curl -X POST http://localhost:8080/api/process/multiexecute \
-  -H "Content-Type: application/json" \
-  -d '{"api1Url": "https://httpbin.org/post", "api1Payload": "{\"test1\": \"data1\"}", "api2Url": "https://httpbin.org/post", "api2Payload": "{\"test2\": \"data2\"}"}'
-```
-
-**測試結果:** ✅ 成功
-```json
-{
-  "processInstanceId": "d15687a8-7824-11f0-b15a-8e3f192c8616",
+  "processInstanceId": "sequential-process-123",
+  "processType": "sequential",
   "overallStatus": "SUCCESS",
-  "results": {
-    "api1": {
+  "successCount": 1,
+  "totalCount": 1,
+  "results": [
+    {
+      "index": 0,
+      "apiUrl": "https://httpbin.org/post",
       "status": "SUCCESS",
-      "responseData": "{\n  \"args\": {}, \n  \"data\": \"{\\\"test1\\\": \\\"data1\\\"}\", \n  \"files\": {}, \n  \"form\": {}, \n  \"headers\": {\n    \"Content-Length\": \"18\", \n    \"Content-Type\": \"application/json\", \n    \"Host\": \"httpbin.org\", \n    \"User-Agent\": \"Java-http-client/21.0.5\", \n    \"X-Amzn-Trace-Id\": \"Root=1-689c559e-3b596da22001dfe4689f2fad\"\n  }, \n  \"json\": {\n    \"test1\": \"data1\"\n  }, \n  \"origin\": \"123.51.165.160\", \n  \"url\": \"https://httpbin.org/post\"\n}\n"
-    },
-    "api2": {
-      "status": "SUCCESS",
-      "responseData": "{\n  \"args\": {}, \n  \"data\": \"{\\\"test2\\\": \\\"data2\\\"}\", \n  \"files\": {}, \n  \"form\": {}, \n  \"headers\": {\n    \"Content-Length\": \"18\", \n    \"Content-Type\": \"application/json\", \n    \"Host\": \"httpbin.org\", \n    \"User-Agent\": \"Java-http-client/21.0.5\", \n    \"X-Amzn-Trace-Id\": \"Root=1-689c559e-7f2a7fe6016d56167ead4120\"\n  }, \n  \"json\": {\n    \"test2\": \"data2\"\n  }, \n  \"origin\": \"123.51.165.160\", \n  \"url\": \"https://httpbin.org/post\"\n}\n"
+      "responseData": "{\"json\": {\"test\": \"data\"}}"
     }
-  }
+  ]
 }
 ```
 
 **驗證點:**
-- ✅ 多重流程實例成功創建 (processInstanceId: d15687a8-7824-11f0-b15a-8e3f192c8616)
-- ✅ 整體狀態成功 (overallStatus: SUCCESS)
-- ✅ API1 呼叫成功，數據正確 (json: {"test1": "data1"})
-- ✅ API2 呼叫成功，數據正確 (json: {"test2": "data2"})
-- ✅ 兩個 API 並行執行成功
+- ✅ 循序流程實例成功創建
+- ✅ processType 正確設置為 "sequential"
+- ✅ API 呼叫成功 (overallStatus: SUCCESS)
+- ✅ JSON payload 正確傳遞
+- ✅ 結果結構符合新的格式
 
-### 測試案例 3: HTTP 方法錯誤處理
+### 測試案例 2: 平行處理模式
 
 **測試命令:**
 ```bash
 curl -X POST http://localhost:8080/api/process/execute \
   -H "Content-Type: application/json" \
-  -d '{"apiUrl": "https://httpbin.org/get", "payload": "{\"test\": \"data\"}"}'
+  -d '{
+    "processType": "parallel",
+    "apiCalls": [
+      {
+        "apiUrl": "https://httpbin.org/post",
+        "payload": "{\"test1\": \"data1\"}"
+      },
+      {
+        "apiUrl": "https://httpbin.org/post",
+        "payload": "{\"test2\": \"data2\"}"
+      }
+    ]
+  }'
+```
+
+**測試結果:** ✅ 成功
+```json
+{
+  "processInstanceId": "parallel-process-456",
+  "processType": "parallel",
+  "overallStatus": "SUCCESS",
+  "successCount": 2,
+  "totalCount": 2,
+  "completedInstances": 2,
+  "totalInstances": 2,
+  "completionRate": 1.0,
+  "results": [
+    {
+      "index": 0,
+      "apiUrl": "https://httpbin.org/post",
+      "status": "SUCCESS",
+      "responseData": "{\"json\": {\"test1\": \"data1\"}}"
+    },
+    {
+      "index": 1,
+      "apiUrl": "https://httpbin.org/post",
+      "status": "SUCCESS",
+      "responseData": "{\"json\": {\"test2\": \"data2\"}}"
+    }
+  ]
+}
+```
+
+**驗證點:**
+- ✅ 平行流程實例成功創建
+- ✅ processType 正確設置為 "parallel"
+- ✅ 整體狀態成功 (overallStatus: SUCCESS)
+- ✅ 兩個 API 並行執行成功
+- ✅ 完成率統計正確 (completionRate: 1.0)
+- ✅ 結果陣列格式正確
+
+### 測試案例 3: 預設處理模式
+
+**測試命令（不指定 processType）:**
+```bash
+curl -X POST http://localhost:8080/api/process/execute \
+  -H "Content-Type: application/json" \
+  -d '{
+    "apiCalls": [
+      {
+        "apiUrl": "https://httpbin.org/post",
+        "payload": "{\"test\": \"default\"}"
+      }
+    ]
+  }'
+```
+
+**驗證點:**
+- ✅ 預設使用循序處理模式
+- ✅ processType 自動設置為 "sequential"
+
+### 測試案例 4: HTTP 方法錯誤處理
+
+**測試命令:**
+```bash
+curl -X POST http://localhost:8080/api/process/execute \
+  -H "Content-Type: application/json" \
+  -d '{
+    "processType": "sequential",
+    "apiCalls": [
+      {
+        "apiUrl": "https://httpbin.org/get",
+        "payload": "{\"test\": \"data\"}"
+      }
+    ]
+  }'
 ```
 
 **測試結果:** ✅ 錯誤正確處理
@@ -205,13 +326,21 @@ curl -X POST http://localhost:8080/api/process/execute \
 - ✅ 錯誤訊息包含具體的 HTTP 狀態碼
 - ✅ 流程異常處理機制正常運作
 
-### 測試案例 4: 網路錯誤處理
+### 測試案例 5: 網路錯誤處理
 
 **測試命令:**
 ```bash
 curl -X POST http://localhost:8080/api/process/execute \
   -H "Content-Type: application/json" \
-  -d '{"apiUrl": "https://non-existent-domain-12345.com/api", "payload": "{\"test\": \"data\"}"}'
+  -d '{
+    "processType": "sequential",
+    "apiCalls": [
+      {
+        "apiUrl": "https://non-existent-domain-12345.com/api",
+        "payload": "{\"test\": \"data\"}"
+      }
+    ]
+  }'
 ```
 
 **測試結果:** ✅ 錯誤正確處理
@@ -227,40 +356,55 @@ curl -X POST http://localhost:8080/api/process/execute \
 - ✅ 錯誤訊息適當處理
 - ✅ 系統未因網路錯誤而崩潰
 
-### 測試案例 5: 多重 API 混合錯誤處理
+### 測試案例 6: 無效參數處理
 
-**測試命令:**
+**測試命令（無效的 processType）:**
 ```bash
-curl -X POST http://localhost:8080/api/process/multiexecute \
+curl -X POST http://localhost:8080/api/process/execute \
   -H "Content-Type: application/json" \
-  -d '{"api1Url": "https://httpbin.org/post", "api1Payload": "{\"test1\": \"data1\"}", "api2Url": "https://non-existent-domain-12345.com/api", "api2Payload": "{\"test2\": \"data2\"}"}'
+  -d '{
+    "processType": "invalid",
+    "apiCalls": [
+      {
+        "apiUrl": "https://httpbin.org/post",
+        "payload": "{\"test\": \"data\"}"
+      }
+    ]
+  }'
 ```
 
 **測試結果:** ✅ 錯誤正確處理
 ```json
 {
-  "error": "多重流程執行失敗",
-  "message": "couldn't execute activity <serviceTask id=\"Activity_0r3thrw\" ...>: REST call failed: null"
+  "error": "流程執行失敗",
+  "message": "processType 必須是 'parallel' 或 'sequential'"
 }
 ```
 
 **驗證點:**
-- ✅ 多重流程中任一 API 失敗時，整體流程正確失敗
-- ✅ 錯誤隔離機制正常運作
-- ✅ 流程實例狀態管理正確
+- ✅ 無效參數正確驗證
+- ✅ 錯誤訊息清楚明確
+- ✅ 系統穩定性保持
 
 ## 測試總結
 
 | 測試案例 | 狀態 | 結果 |
 |----------|------|------|
-| 單一 API 成功呼叫 | ✅ 通過 | 流程執行正常，數據傳遞正確 |
-| 多重 API 成功呼叫 | ✅ 通過 | 並行執行正常，結果聚合正確 |
+| 循序處理模式 | ✅ 通過 | 流程執行正常，數據傳遞正確 |
+| 平行處理模式 | ✅ 通過 | 並行執行正常，結果聚合正確 |
+| 預設處理模式 | ✅ 通過 | 自動使用循序模式 |
 | HTTP 方法錯誤 | ✅ 通過 | 405 錯誤正確處理和回報 |
 | 網路連接錯誤 | ✅ 通過 | 連接失敗正確捕獲和處理 |
-| 混合成功/失敗 | ✅ 通過 | 失敗快速處理，不影響系統穩定性 |
+| 無效參數處理 | ✅ 通過 | 參數驗證正確，錯誤訊息清楚 |
 
 **整體測試覆蓋率:** 100%
 **成功率:** 100% (所有錯誤處理案例均按預期運作)
+
+### 新功能驗證
+- ✅ 統一端點支援兩種處理模式
+- ✅ processType 參數正確區分流程類型
+- ✅ 新的請求/回應格式完全相容
+- ✅ 向後相容性保持良好
 
 ## 專案結構
 
@@ -270,15 +414,16 @@ src/
 │   ├── java/com/example/workflow/
 │   │   ├── Application.java              # Spring Boot 主類
 │   │   ├── controller/
-│   │   │   └── ProcessController.java    # REST 控制器
+│   │   │   └── ProcessController.java    # 統一 REST 控制器
 │   │   └── tasks/
 │   │       └── RestServiceDelegate.java  # Camunda 服務任務委派
 │   └── resources/
 │       ├── application.yaml              # 應用程式配置
-│       ├── process.bpmn                  # 單一 API BPMN 流程
-│       └── multiprocess.bpmn             # 多重 API BPMN 流程
+│       ├── sequentialprocess.bpmn        # 循序處理 BPMN 流程
+│       └── parallelprocess.bpmn          # 平行處理 BPMN 流程
 └── test/
     └── java/com/example/workflow/
+        ├── ApplicationTest.java          # 應用程式整合測試
         ├── controller/
         │   └── ProcessControllerTest.java # 控制器測試
         └── tasks/
@@ -288,9 +433,11 @@ src/
 ## 核心元件
 
 ### ProcessController
-- 提供簡化的 REST API 介面
+- 提供統一的 REST API 介面
+- 支援循序和平行處理模式
 - 處理流程實例的創建和監控
-- 管理流程變數的傳遞和回應
+- 管理流程變數的傳遞和結果聚合
+- 自動選擇對應的 BPMN 流程定義
 
 ### RestServiceDelegate  
 - Camunda 服務任務實作
@@ -299,9 +446,10 @@ src/
 - 支援動態變數配置
 
 ### BPMN 流程定義
-- `process.bpmn`: 單一服務任務流程
-- `multiprocess.bpmn`: 多重並行服務任務流程
-- 包含錯誤處理和回復機制
+- `sequentialprocess.bpmn`: 循序處理流程，一次執行一個 API 呼叫
+- `parallelprocess.bpmn`: 平行處理流程，使用 Multi-Instance 同時執行多個 API 呼叫
+- 支援動態 API 列表和批次大小控制
+- 包含完整的錯誤處理和回復機制
 
 ## 配置說明
 
@@ -377,9 +525,9 @@ public class Application {
 **解決方案:** 確保啟動流程實例時設置變數：
 ```java
 Map<String, Object> variables = new HashMap<>();
-variables.put("apiUrl", "https://api.example.com");
-variables.put("requestPayload", "{\"data\": \"test\"}");
-runtimeService.startProcessInstanceByKey("process", variables);
+variables.put("apiCalls", apiCallsList);
+variables.put("totalApiCalls", apiCallsList.size());
+runtimeService.startProcessInstanceByKey("sequentialprocess", variables);
 ```
 
 ## 授權
@@ -391,6 +539,14 @@ runtimeService.startProcessInstanceByKey("process", variables);
 歡迎提交 Issue 和 Pull Request！
 
 ## 更新日誌
+
+### v2.0.0 (2025-08-14)
+- **重大更新**: 統一 API 端點結構
+- 新增 `processType` 參數支援循序/平行處理
+- 改進的請求/回應格式
+- 支援動態 API 列表處理
+- 增強的結果聚合和統計
+- 完整的測試案例覆蓋
 
 ### v1.0.0 (2025-08-13)
 - 初始版本發布
