@@ -7,13 +7,6 @@ spring:
   h2:
     console:
       enabled: false
-  jpa:
-    database-platform: org.hibernate.dialect.H2Dialect
-    generate-ddl: false
-    hibernate:
-      ddl-auto: none
-  main:
-    lazy-initialization: true
 
 camunda:
   bpm:
@@ -31,13 +24,10 @@ camunda:
     generic-properties:
       properties:
         history-time-to-live: "P1D"
-        enable-script-engine-load-ilegal-files: false
-
-# Native Image optimizations
 logging:
   level:
     org.camunda.bpm.engine: INFO
-    org.springframework.aot: DEBUG
+    com.example.workflow: INFO
 
 management:
   endpoints:

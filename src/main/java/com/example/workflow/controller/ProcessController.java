@@ -371,40 +371,22 @@ public class ProcessController {
         
         List<Map<String, Object>> results = new java.util.ArrayList<>();
         
-        // 嘗試根據索引模式提取結果
+        // 對於多實例循環，我們需要查找 rest-api 相關的變數
+        // 因為所有多實例都使用同一個 service task "rest-api"
+        String responseData = (String) processVariables.get("rest-api_responseData");
+        String status = (String) processVariables.get("rest-api_status");
+        
+        // 如果找不到 task-specific 變數，嘗試通用變數
+        if (responseData == null) {
+            responseData = (String) processVariables.get("responseData");
+        }
+        if (status == null) {
+            status = (String) processVariables.get("status");
+        }
+        
+        // 由於多實例循環，我們為每個原始請求創建一個結果條目
         for (int i = 0; i < originalRequests.size(); i++) {
             Map<String, Object> result = new HashMap<>();
-            
-            // 嘗試多種可能的變數命名模式
-            String[] possibleKeys = {
-                "result_" + i,
-                "apiResult_" + i,
-                "responseData_" + i,
-                "item_" + i + "_responseData"
-            };
-            
-            String responseData = null;
-            String status = null;
-            
-            for (String key : possibleKeys) {
-                if (processVariables.containsKey(key)) {
-                    responseData = (String) processVariables.get(key);
-                    break;
-                }
-            }
-            
-            String[] possibleStatusKeys = {
-                "status_" + i,
-                "apiStatus_" + i,
-                "item_" + i + "_status"
-            };
-            
-            for (String key : possibleStatusKeys) {
-                if (processVariables.containsKey(key)) {
-                    status = (String) processVariables.get(key);
-                    break;
-                }
-            }
             
             result.put("index", i);
             result.put("apiUrl", originalRequests.get(i).getApiUrl());
@@ -412,6 +394,53 @@ public class ProcessController {
             result.put("responseData", responseData);
             
             results.add(result);
+        }
+        
+        // 如果沒有找到任何結果，嘗試回退到索引模式
+        if (responseData == null && status == null) {
+            results.clear();
+            
+            for (int i = 0; i < originalRequests.size(); i++) {
+                Map<String, Object> result = new HashMap<>();
+                
+                // 嘗試多種可能的變數命名模式
+                String[] possibleKeys = {
+                    "result_" + i,
+                    "apiResult_" + i,
+                    "responseData_" + i,
+                    "item_" + i + "_responseData"
+                };
+                
+                String fallbackResponseData = null;
+                String fallbackStatus = null;
+                
+                for (String key : possibleKeys) {
+                    if (processVariables.containsKey(key)) {
+                        fallbackResponseData = (String) processVariables.get(key);
+                        break;
+                    }
+                }
+                
+                String[] possibleStatusKeys = {
+                    "status_" + i,
+                    "apiStatus_" + i,
+                    "item_" + i + "_status"
+                };
+                
+                for (String key : possibleStatusKeys) {
+                    if (processVariables.containsKey(key)) {
+                        fallbackStatus = (String) processVariables.get(key);
+                        break;
+                    }
+                }
+                
+                result.put("index", i);
+                result.put("apiUrl", originalRequests.get(i).getApiUrl());
+                result.put("status", fallbackStatus != null ? fallbackStatus : "UNKNOWN");
+                result.put("responseData", fallbackResponseData);
+                
+                results.add(result);
+            }
         }
         
         return results;
@@ -493,7 +522,7 @@ public class ProcessController {
     }
 
     // 單一 API 呼叫請求結構
-    public static class ApiCallRequest {
+    public static class ApiCallRequest implements java.io.Serializable {
         private String apiUrl;
         private String payload;
         private String taskId; // 可選，用於指定特定的 service task

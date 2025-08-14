@@ -31,15 +31,44 @@ public class RestServiceDelegate implements JavaDelegate {
         String apiUrlVar = activityId + "_apiUrl";
         String payloadVar = activityId + "_requestPayload";
         
-        // 先嘗試使用 task-specific 變數，如果不存在則使用通用變數（向後兼容）
-        String apiUrl = (String) execution.getVariable(apiUrlVar);
-        if (apiUrl == null) {
-            apiUrl = (String) execution.getVariable("apiUrl");
+        // 檢查多實例循環變數（優先級最高）
+        Object apiCallObj = execution.getVariable("apiCall");
+        String apiUrl = null;
+        String payload = null;
+        
+        if (apiCallObj != null) {
+            // 這是多實例循環中的 ApiCallRequest 對象
+            logger.debug("Found apiCall object: {}", apiCallObj);
+            
+            // 嘗試通過反射獲取字段值
+            try {
+                java.lang.reflect.Field apiUrlField = apiCallObj.getClass().getDeclaredField("apiUrl");
+                apiUrlField.setAccessible(true);
+                apiUrl = (String) apiUrlField.get(apiCallObj);
+                
+                java.lang.reflect.Field payloadField = apiCallObj.getClass().getDeclaredField("payload");
+                payloadField.setAccessible(true);
+                payload = (String) payloadField.get(apiCallObj);
+                
+                logger.debug("Extracted from apiCall - apiUrl: {}, payload: {}", apiUrl, payload);
+            } catch (Exception e) {
+                logger.warn("Failed to extract values from apiCall object: {}", e.getMessage());
+            }
         }
         
-        String payload = (String) execution.getVariable(payloadVar);
+        // 如果多實例變數不可用，則嘗試使用 task-specific 變數（向後兼容）
+        if (apiUrl == null) {
+            apiUrl = (String) execution.getVariable(apiUrlVar);
+            if (apiUrl == null) {
+                apiUrl = (String) execution.getVariable("apiUrl");
+            }
+        }
+        
         if (payload == null) {
-            payload = (String) execution.getVariable("requestPayload");
+            payload = (String) execution.getVariable(payloadVar);
+            if (payload == null) {
+                payload = (String) execution.getVariable("requestPayload");
+            }
         }
         
         logger.debug("Looking for variables: {} and {}", apiUrlVar, payloadVar);
