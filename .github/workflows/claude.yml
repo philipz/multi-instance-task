@@ -30,11 +30,28 @@ jobs:
         with:
           fetch-depth: 1
 
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+          cache: 'maven'
+  
+      - name: Project Setup
+        run: |
+          ./mvnw clean install
+          ./mvnw spring-boot:run
+    
       - name: Run Claude Code
         id: claude
         uses: anthropics/claude-code-action@beta
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+
+          custom_instructions: |
+            The project is already set up with all dependencies installed.
+            The server is already running at localhost:8080. Logs from it
+            are being written to stdout.
 
           # This is an optional setting that allows Claude to read CI results on PRs
           additional_permissions: |
