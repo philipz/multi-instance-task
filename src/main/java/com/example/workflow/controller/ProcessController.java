@@ -1,5 +1,9 @@
 package com.example.workflow.controller;
 
+import com.example.workflow.controller.dto.ProcessRequest;
+import com.example.workflow.controller.dto.ApiCallRequest;
+import com.example.workflow.controller.dto.ProcessResponse;
+import com.example.workflow.service.ProcessResultAggregator;
 import org.camunda.bpm.engine.RuntimeService;
 import org.camunda.bpm.engine.HistoryService;
 import org.camunda.bpm.engine.RepositoryService;
@@ -31,6 +35,9 @@ public class ProcessController {
     
     @Autowired
     private RepositoryService repositoryService;
+    
+    @Autowired
+    private ProcessResultAggregator resultAggregator;
 
     /**
      * 動態取得指定 process key 中的所有 service task ID
@@ -123,8 +130,11 @@ public class ProcessController {
             logger.debug("Variables after execution: {}", processVariables);
             
             // 聚合執行結果
-            Map<String, Object> response = aggregateResults(processInstance.getId(), 
+            ProcessResponse processResponse = resultAggregator.aggregateResults(processInstance.getId(), 
                 processVariables, request.getApiCalls(), processType);
+            
+            // 轉換為 Map 格式以保持向後相容性
+            Map<String, Object> response = convertToMap(processResponse);
             
             return ResponseEntity.ok(response);
             
@@ -138,196 +148,29 @@ public class ProcessController {
     }
 
     /**
-     * 聚合執行結果 (支援平行與循序)
+     * 將 ProcessResponse 轉換為 Map 格式以保持向後相容性
      */
-    private Map<String, Object> aggregateResults(String processInstanceId, 
-            Map<String, Object> processVariables, List<ApiCallRequest> originalRequests, String processType) {
-        
+    private Map<String, Object> convertToMap(ProcessResponse processResponse) {
         Map<String, Object> response = new HashMap<>();
-        response.put("processInstanceId", processInstanceId);
-        response.put("processType", processType);
+        response.put("processInstanceId", processResponse.getProcessInstanceId());
+        response.put("processType", processResponse.getProcessType());
+        response.put("overallStatus", processResponse.getOverallStatus());
+        response.put("successCount", processResponse.getSuccessCount());
+        response.put("totalCount", processResponse.getTotalCount());
+        response.put("results", processResponse.getResults());
         
-        // 取得結果集合 - 根據流程類型處理
-        @SuppressWarnings("unchecked")
-        List<Map<String, Object>> results = (List<Map<String, Object>>) processVariables.get("results");
-        
-        if (results == null || results.isEmpty()) {
-            // 如果沒有結果集合，嘗試從個別變數中取得結果
-            results = extractIndividualResults(processVariables, originalRequests, processType);
+        // 添加平行處理專用欄位（如果存在）
+        if (processResponse.getCompletedInstances() != null) {
+            response.put("completedInstances", processResponse.getCompletedInstances());
         }
-        
-        // 計算整體狀態
-        int successCount = 0;
-        int totalCount = results.size();
-        
-        for (Map<String, Object> result : results) {
-            String status = (String) result.get("status");
-            if ("SUCCESS".equals(status)) {
-                successCount++;
-            }
+        if (processResponse.getTotalInstances() != null) {
+            response.put("totalInstances", processResponse.getTotalInstances());
         }
-        
-        String overallStatus;
-        if (successCount == totalCount) {
-            overallStatus = "SUCCESS";
-        } else if (successCount > 0) {
-            overallStatus = "PARTIAL_SUCCESS";
-        } else {
-            overallStatus = "FAILURE";
-        }
-        
-        response.put("overallStatus", overallStatus);
-        response.put("successCount", successCount);
-        response.put("totalCount", totalCount);
-        response.put("results", results);
-        
-        // 添加執行統計信息
-        Integer nrOfCompletedInstances = (Integer) processVariables.get("nrOfCompletedInstances");
-        Integer nrOfInstances = (Integer) processVariables.get("nrOfInstances");
-        
-        if (nrOfCompletedInstances != null && nrOfInstances != null) {
-            response.put("completedInstances", nrOfCompletedInstances);
-            response.put("totalInstances", nrOfInstances);
-            response.put("completionRate", 
-                nrOfInstances > 0 ? (double) nrOfCompletedInstances / nrOfInstances : 0.0);
+        if (processResponse.getCompletionRate() != null) {
+            response.put("completionRate", processResponse.getCompletionRate());
         }
         
         return response;
     }
 
-    /**
-     * 從個別變數中提取結果（備用方法）
-     */
-    private List<Map<String, Object>> extractIndividualResults(Map<String, Object> processVariables, 
-            List<ApiCallRequest> originalRequests, String processType) {
-        
-        List<Map<String, Object>> results = new java.util.ArrayList<>();
-        
-        // 對於多實例循環，我們需要查找 rest-api 相關的變數
-        // 因為所有多實例都使用同一個 service task "rest-api"
-        String responseData = (String) processVariables.get("rest-api_responseData");
-        String status = (String) processVariables.get("rest-api_status");
-        
-        // 如果找不到 task-specific 變數，嘗試通用變數
-        if (responseData == null) {
-            responseData = (String) processVariables.get("responseData");
-        }
-        if (status == null) {
-            status = (String) processVariables.get("status");
-        }
-        
-        // 由於多實例循環，我們為每個原始請求創建一個結果條目
-        for (int i = 0; i < originalRequests.size(); i++) {
-            Map<String, Object> result = new HashMap<>();
-            
-            result.put("index", i);
-            result.put("apiUrl", originalRequests.get(i).getApiUrl());
-            result.put("status", status != null ? status : "UNKNOWN");
-            result.put("responseData", responseData);
-            
-            results.add(result);
-        }
-        
-        // 如果沒有找到任何結果，嘗試回退到索引模式
-        if (responseData == null && status == null) {
-            results.clear();
-            
-            for (int i = 0; i < originalRequests.size(); i++) {
-                Map<String, Object> result = new HashMap<>();
-                
-                // 嘗試多種可能的變數命名模式
-                String[] possibleKeys = {
-                    "result_" + i,
-                    "apiResult_" + i,
-                    "responseData_" + i,
-                    "item_" + i + "_responseData"
-                };
-                
-                String fallbackResponseData = null;
-                String fallbackStatus = null;
-                
-                for (String key : possibleKeys) {
-                    if (processVariables.containsKey(key)) {
-                        fallbackResponseData = (String) processVariables.get(key);
-                        break;
-                    }
-                }
-                
-                String[] possibleStatusKeys = {
-                    "status_" + i,
-                    "apiStatus_" + i,
-                    "item_" + i + "_status"
-                };
-                
-                for (String key : possibleStatusKeys) {
-                    if (processVariables.containsKey(key)) {
-                        fallbackStatus = (String) processVariables.get(key);
-                        break;
-                    }
-                }
-                
-                result.put("index", i);
-                result.put("apiUrl", originalRequests.get(i).getApiUrl());
-                result.put("status", fallbackStatus != null ? fallbackStatus : "UNKNOWN");
-                result.put("responseData", fallbackResponseData);
-                
-                results.add(result);
-            }
-        }
-        
-        return results;
-    }
-
-    // 流程請求結構 - 支援平行與循序處理
-    public static class ProcessRequest {
-        private String processType; // "parallel" 或 "sequential"
-        private List<ApiCallRequest> apiCalls;
-
-        public String getProcessType() {
-            return processType;
-        }
-
-        public void setProcessType(String processType) {
-            this.processType = processType;
-        }
-
-        public List<ApiCallRequest> getApiCalls() {
-            return apiCalls;
-        }
-
-        public void setApiCalls(List<ApiCallRequest> apiCalls) {
-            this.apiCalls = apiCalls;
-        }
-    }
-
-    // 單一 API 呼叫請求結構
-    public static class ApiCallRequest implements java.io.Serializable {
-        private String apiUrl;
-        private String payload;
-        private String taskId; // 可選，用於指定特定的 service task
-
-        public String getApiUrl() {
-            return apiUrl;
-        }
-
-        public void setApiUrl(String apiUrl) {
-            this.apiUrl = apiUrl;
-        }
-
-        public String getPayload() {
-            return payload;
-        }
-
-        public void setPayload(String payload) {
-            this.payload = payload;
-        }
-
-        public String getTaskId() {
-            return taskId;
-        }
-
-        public void setTaskId(String taskId) {
-            this.taskId = taskId;
-        }
-    }
 }

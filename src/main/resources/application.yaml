@@ -26,9 +26,32 @@ camunda:
         history-time-to-live: "P1D"
 logging:
   level:
-    org.camunda.bpm.engine: INFO
+    org.camunda.bpm.engine: WARN
     com.example.workflow: INFO
 
+
+# Actuator endpoints configuration - separate port to avoid security conflicts
 management:
   endpoints:
-    enabled-by-default: false
+    web:
+      exposure:
+        include: health,info,prometheus,metrics
+      base-path: /actuator
+  server:
+    port: 9000
+
+# Health check configuration for Kubernetes probes
+# Liveness and Readiness probe configuration
+  endpoint:
+    health:
+      probes:
+        enabled: true
+        add-additional-paths: true
+      show-details: always
+      show-components: always
+      livenessstate:
+        enabled: true
+      readinessstate:
+        enabled: true
+  prometheus:
+    access: unrestricted
