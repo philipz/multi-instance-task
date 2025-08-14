@@ -1,0 +1,422 @@
+{
+  "info": {
+    "name": "Camunda Parallel Execute API",
+    "description": "Camunda Multi-Instance 並行 API 執行測試集合",
+    "version": "1.0.0",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "成功測試",
+      "item": [
+        {
+          "name": "多 API 並行執行",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"apiCalls\": [\n    {\n      \"apiUrl\": \"https://httpbin.org/post\",\n      \"payload\": \"{\\\"test\\\": \\\"api1\\\"}\"\n    },\n    {\n      \"apiUrl\": \"https://httpbin.org/post\",\n      \"payload\": \"{\\\"test\\\": \\\"api2\\\"}\"\n    },\n    {\n      \"apiUrl\": \"https://httpbin.org/post\",\n      \"payload\": \"{\\\"test\\\": \\\"api3\\\"}\"\n    }\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/process/parallelexecute",
+              "host": ["{{base_url}}"],
+              "path": ["api", "process", "parallelexecute"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test(\"Response has processInstanceId\", function () {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData).to.have.property('processInstanceId');",
+                  "});",
+                  "",
+                  "pm.test(\"Overall status is SUCCESS\", function () {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.overallStatus).to.eql('SUCCESS');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "單一 API 執行",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"apiCalls\": [\n    {\n      \"apiUrl\": \"https://httpbin.org/post\",\n      \"payload\": \"{\\\"message\\\": \\\"Hello World\\\"}\"\n    }\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/process/parallelexecute",
+              "host": ["{{base_url}}"],
+              "path": ["api", "process", "parallelexecute"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test(\"Response has processInstanceId\", function () {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData).to.have.property('processInstanceId');",
+                  "});",
+                  "",
+                  "pm.test(\"Total count is 1\", function () {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.totalCount).to.eql(1);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "自定義 TaskId",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"apiCalls\": [\n    {\n      \"apiUrl\": \"https://httpbin.org/post\",\n      \"payload\": \"{\\\"custom\\\": true}\",\n      \"taskId\": \"customTask001\"\n    }\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/process/parallelexecute",
+              "host": ["{{base_url}}"],
+              "path": ["api", "process", "parallelexecute"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test(\"Response has processInstanceId\", function () {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData).to.have.property('processInstanceId');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "大批次執行（10個 API）",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"apiCalls\": [\n    {\"apiUrl\": \"https://httpbin.org/delay/1\", \"payload\": \"{\\\"id\\\": 1}\"},\n    {\"apiUrl\": \"https://httpbin.org/delay/1\", \"payload\": \"{\\\"id\\\": 2}\"},\n    {\"apiUrl\": \"https://httpbin.org/delay/1\", \"payload\": \"{\\\"id\\\": 3}\"},\n    {\"apiUrl\": \"https://httpbin.org/delay/1\", \"payload\": \"{\\\"id\\\": 4}\"},\n    {\"apiUrl\": \"https://httpbin.org/delay/1\", \"payload\": \"{\\\"id\\\": 5}\"},\n    {\"apiUrl\": \"https://httpbin.org/delay/1\", \"payload\": \"{\\\"id\\\": 6}\"},\n    {\"apiUrl\": \"https://httpbin.org/delay/1\", \"payload\": \"{\\\"id\\\": 7}\"},\n    {\"apiUrl\": \"https://httpbin.org/delay/1\", \"payload\": \"{\\\"id\\\": 8}\"},\n    {\"apiUrl\": \"https://httpbin.org/delay/1\", \"payload\": \"{\\\"id\\\": 9}\"},\n    {\"apiUrl\": \"https://httpbin.org/delay/1\", \"payload\": \"{\\\"id\\\": 10}\"}\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/process/parallelexecute",
+              "host": ["{{base_url}}"],
+              "path": ["api", "process", "parallelexecute"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test(\"Response has processInstanceId\", function () {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData).to.have.property('processInstanceId');",
+                  "});",
+                  "",
+                  "pm.test(\"Total count is 10\", function () {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.totalCount).to.eql(10);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "錯誤處理測試",
+      "item": [
+        {
+          "name": "空 API 呼叫列表",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"apiCalls\": []\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/process/parallelexecute",
+              "host": ["{{base_url}}"],
+              "path": ["api", "process", "parallelexecute"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 500\", function () {",
+                  "    pm.response.to.have.status(500);",
+                  "});",
+                  "",
+                  "pm.test(\"Error message contains validation text\", function () {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.message).to.include('至少需要提供一個 API 呼叫請求');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "缺少 apiCalls 字段",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/process/parallelexecute",
+              "host": ["{{base_url}}"],
+              "path": ["api", "process", "parallelexecute"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 500\", function () {",
+                  "    pm.response.to.have.status(500);",
+                  "});",
+                  "",
+                  "pm.test(\"Error message contains validation text\", function () {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.message).to.include('至少需要提供一個 API 呼叫請求');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "無效的 JSON",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "invalid json"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/process/parallelexecute",
+              "host": ["{{base_url}}"],
+              "path": ["api", "process", "parallelexecute"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 400\", function () {",
+                  "    pm.response.to.have.status(400);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "不支援的 HTTP 方法 (GET)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/process/parallelexecute",
+              "host": ["{{base_url}}"],
+              "path": ["api", "process", "parallelexecute"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 405\", function () {",
+                  "    pm.response.to.have.status(405);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "效能測試",
+      "item": [
+        {
+          "name": "執行時間測試",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"apiCalls\": [\n    {\"apiUrl\": \"https://httpbin.org/delay/2\", \"payload\": \"{\\\"test\\\": \\\"performance1\\\"}\"},\n    {\"apiUrl\": \"https://httpbin.org/delay/2\", \"payload\": \"{\\\"test\\\": \\\"performance2\\\"}\"}\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/process/parallelexecute",
+              "host": ["{{base_url}}"],
+              "path": ["api", "process", "parallelexecute"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test(\"Response time is reasonable\", function () {",
+                  "    pm.expect(pm.response.responseTime).to.be.below(10000);",
+                  "});",
+                  "",
+                  "pm.test(\"Parallel execution efficiency\", function () {",
+                  "    // 兩個 2 秒的 API 並行執行應該小於 6 秒（允許一些開銷）",
+                  "    pm.expect(pm.response.responseTime).to.be.below(6000);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "本地端點測試",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"apiCalls\": [\n    {\n      \"apiUrl\": \"{{base_url}}/actuator/health\",\n      \"payload\": \"{}\"\n    }\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/process/parallelexecute",
+              "host": ["{{base_url}}"],
+              "path": ["api", "process", "parallelexecute"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test(\"Response has processInstanceId\", function () {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData).to.have.property('processInstanceId');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:8080",
+      "type": "string"
+    }
+  ]
+}

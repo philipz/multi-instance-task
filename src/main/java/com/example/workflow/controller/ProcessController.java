@@ -239,6 +239,184 @@ public class ProcessController {
         }
     }
 
+    @PostMapping("/parallelexecute")
+    public ResponseEntity<Map<String, Object>> executeProcessParallel(@RequestBody ParallelProcessRequest request) {
+        try {
+            // 調試信息：檢查輸入參數
+            logger.debug("=== ProcessController ParallelExecute Debug Info ===");
+            logger.debug("Input API calls count: {}", request.getApiCalls() != null ? request.getApiCalls().size() : 0);
+            
+            if (request.getApiCalls() == null || request.getApiCalls().isEmpty()) {
+                throw new IllegalArgumentException("至少需要提供一個 API 呼叫請求");
+            }
+            
+            // 準備多實例集合變數 - 根據 Multi-Instance.md 的建議
+            Map<String, Object> variables = new HashMap<>();
+            variables.put("apiCalls", request.getApiCalls());
+            variables.put("totalApiCalls", request.getApiCalls().size());
+            variables.put("batchSize", Math.min(request.getApiCalls().size(), 100)); // 最大批次大小 100
+            
+            // 記錄每個 API 呼叫的詳細信息
+            for (int i = 0; i < request.getApiCalls().size(); i++) {
+                ApiCallRequest apiCall = request.getApiCalls().get(i);
+                logger.debug("API Call {}: URL={}, TaskId={}", i, apiCall.getApiUrl(), apiCall.getTaskId());
+            }
+            
+            logger.debug("Variables being passed: {}", variables);
+            logger.debug("===================================");
+
+            // 啟動流程實例 - 使用 parallel-process 作為流程定義 key
+            ProcessInstance processInstance = runtimeService.startProcessInstanceByKey(
+                "parallelprocess", variables);
+
+            // 檢查流程狀態
+            logger.debug("Process Instance ID: {}", processInstance.getId());
+            logger.debug("Process Instance ended: {}", processInstance.isEnded());
+            
+            // 取得流程變數：根據流程是否結束選擇不同的方法
+            Map<String, Object> processVariables = new HashMap<>();
+            if (processInstance.isEnded()) {
+                // 流程已結束，從歷史記錄中取得變數
+                List<HistoricVariableInstance> historicVariables = historyService
+                    .createHistoricVariableInstanceQuery()
+                    .processInstanceId(processInstance.getId())
+                    .list();
+                
+                for (HistoricVariableInstance variable : historicVariables) {
+                    processVariables.put(variable.getName(), variable.getValue());
+                }
+            } else {
+                // 流程尚未結束，從運行時取得變數
+                processVariables = runtimeService.getVariables(processInstance.getId());
+            }
+            logger.debug("Variables after execution: {}", processVariables);
+            
+            // 聚合平行執行結果
+            Map<String, Object> response = aggregateParallelResults(processInstance.getId(), 
+                processVariables, request.getApiCalls());
+            
+            return ResponseEntity.ok(response);
+            
+        } catch (Exception e) {
+            logger.error("平行流程執行失敗", e);
+            Map<String, Object> errorResponse = new HashMap<>();
+            errorResponse.put("error", "平行流程執行失敗");
+            errorResponse.put("message", e.getMessage());
+            return ResponseEntity.status(500).body(errorResponse);
+        }
+    }
+
+    /**
+     * 聚合平行執行結果
+     */
+    private Map<String, Object> aggregateParallelResults(String processInstanceId, 
+            Map<String, Object> processVariables, List<ApiCallRequest> originalRequests) {
+        
+        Map<String, Object> response = new HashMap<>();
+        response.put("processInstanceId", processInstanceId);
+        
+        // 取得結果集合 - 根據 Multi-Instance.md 的 output collection 模式
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> results = (List<Map<String, Object>>) processVariables.get("results");
+        
+        if (results == null || results.isEmpty()) {
+            // 如果沒有結果集合，嘗試從個別變數中取得結果
+            results = extractIndividualResults(processVariables, originalRequests);
+        }
+        
+        // 計算整體狀態
+        int successCount = 0;
+        int totalCount = results.size();
+        
+        for (Map<String, Object> result : results) {
+            String status = (String) result.get("status");
+            if ("SUCCESS".equals(status)) {
+                successCount++;
+            }
+        }
+        
+        String overallStatus;
+        if (successCount == totalCount) {
+            overallStatus = "SUCCESS";
+        } else if (successCount > 0) {
+            overallStatus = "PARTIAL_SUCCESS";
+        } else {
+            overallStatus = "FAILURE";
+        }
+        
+        response.put("overallStatus", overallStatus);
+        response.put("successCount", successCount);
+        response.put("totalCount", totalCount);
+        response.put("results", results);
+        
+        // 添加執行統計信息
+        Integer nrOfCompletedInstances = (Integer) processVariables.get("nrOfCompletedInstances");
+        Integer nrOfInstances = (Integer) processVariables.get("nrOfInstances");
+        
+        if (nrOfCompletedInstances != null && nrOfInstances != null) {
+            response.put("completedInstances", nrOfCompletedInstances);
+            response.put("totalInstances", nrOfInstances);
+            response.put("completionRate", 
+                nrOfInstances > 0 ? (double) nrOfCompletedInstances / nrOfInstances : 0.0);
+        }
+        
+        return response;
+    }
+
+    /**
+     * 從個別變數中提取結果（備用方法）
+     */
+    private List<Map<String, Object>> extractIndividualResults(Map<String, Object> processVariables, 
+            List<ApiCallRequest> originalRequests) {
+        
+        List<Map<String, Object>> results = new java.util.ArrayList<>();
+        
+        // 嘗試根據索引模式提取結果
+        for (int i = 0; i < originalRequests.size(); i++) {
+            Map<String, Object> result = new HashMap<>();
+            
+            // 嘗試多種可能的變數命名模式
+            String[] possibleKeys = {
+                "result_" + i,
+                "apiResult_" + i,
+                "responseData_" + i,
+                "item_" + i + "_responseData"
+            };
+            
+            String responseData = null;
+            String status = null;
+            
+            for (String key : possibleKeys) {
+                if (processVariables.containsKey(key)) {
+                    responseData = (String) processVariables.get(key);
+                    break;
+                }
+            }
+            
+            String[] possibleStatusKeys = {
+                "status_" + i,
+                "apiStatus_" + i,
+                "item_" + i + "_status"
+            };
+            
+            for (String key : possibleStatusKeys) {
+                if (processVariables.containsKey(key)) {
+                    status = (String) processVariables.get(key);
+                    break;
+                }
+            }
+            
+            result.put("index", i);
+            result.put("apiUrl", originalRequests.get(i).getApiUrl());
+            result.put("status", status != null ? status : "UNKNOWN");
+            result.put("responseData", responseData);
+            
+            results.add(result);
+        }
+        
+        return results;
+    }
+
     // 內部類別定義請求結構
     public static class ProcessRequest {
         private String apiUrl;
@@ -298,6 +476,50 @@ public class ProcessController {
 
         public void setApi2Payload(String api2Payload) {
             this.api2Payload = api2Payload;
+        }
+    }
+
+    // 平行流程請求結構 - 支援 1~n 個 API 呼叫
+    public static class ParallelProcessRequest {
+        private List<ApiCallRequest> apiCalls;
+
+        public List<ApiCallRequest> getApiCalls() {
+            return apiCalls;
+        }
+
+        public void setApiCalls(List<ApiCallRequest> apiCalls) {
+            this.apiCalls = apiCalls;
+        }
+    }
+
+    // 單一 API 呼叫請求結構
+    public static class ApiCallRequest {
+        private String apiUrl;
+        private String payload;
+        private String taskId; // 可選，用於指定特定的 service task
+
+        public String getApiUrl() {
+            return apiUrl;
+        }
+
+        public void setApiUrl(String apiUrl) {
+            this.apiUrl = apiUrl;
+        }
+
+        public String getPayload() {
+            return payload;
+        }
+
+        public void setPayload(String payload) {
+            this.payload = payload;
+        }
+
+        public String getTaskId() {
+            return taskId;
+        }
+
+        public void setTaskId(String taskId) {
+            this.taskId = taskId;
         }
     }
 }
