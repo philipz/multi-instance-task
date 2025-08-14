@@ -5,10 +5,11 @@ on:
     types: [opened, synchronize]
     # Optional: Only run on specific file changes
     # paths:
-    #   - "src/**/*.ts"
-    #   - "src/**/*.tsx"
-    #   - "src/**/*.js"
-    #   - "src/**/*.jsx"
+    #   - "src/**/*.java"
+    #   - "src/**/*.xml"
+    #   - "src/**/*.yaml"
+    #   - "src/**/*.yml"
+    #   - "pom.xml"
 
 jobs:
   claude-review:
@@ -42,13 +43,15 @@ jobs:
 
           # Direct prompt for automated review (no @claude mention needed)
           direct_prompt: |
-            Please review this pull request and provide feedback on:
-            - Code quality and best practices
-            - Potential bugs or issues
-            - Performance considerations
-            - Security concerns
-            - Test coverage
+            Please review this Spring Boot/Camunda BPMN pull request and provide feedback on:
+            - Java code quality and Spring Boot best practices
+            - Camunda BPMN process design and configuration
+            - REST API security and input validation
+            - Database operations and transaction handling
+            - Test coverage for service delegates and controllers
+            - Maven configuration and dependency management
             
+            Focus on workflow orchestration patterns and process engine integration.
             Be constructive and helpful in your feedback.
 
           # Optional: Use sticky comments to make Claude reuse the same comment on subsequent pushes to the same PR
@@ -69,7 +72,7 @@ jobs:
           #   'Please provide a thorough code review focusing on our coding standards and best practices.' }}
           
           # Optional: Add specific tools for running tests or linting
-          # allowed_tools: "Bash(npm run test),Bash(npm run lint),Bash(npm run typecheck)"
+          # allowed_tools: "Bash(./mvnw test),Bash(./mvnw compile),Bash(./mvnw spring-boot:run)"
           
           # Optional: Skip review for certain conditions
           # if: |

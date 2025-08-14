@@ -37,10 +37,10 @@ jobs:
           distribution: 'temurin'
           cache: 'maven'
   
-      - name: Project Setup
+      - name: Project Setup  
         run: |
-          ./mvnw clean install
-          ./mvnw spring-boot:run
+          ./mvnw clean compile
+          ./mvnw test-compile
     
       - name: Run Claude Code
         id: claude
@@ -49,9 +49,16 @@ jobs:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
 
           custom_instructions: |
-            The project is already set up with all dependencies installed.
-            The server is already running at localhost:8080. Logs from it
-            are being written to stdout.
+            This is a Spring Boot 3.4.4 application with Camunda BPM 7.23.0 running on Java 21.
+            The project uses Maven for build management and H2 database for development.
+            Key components:
+            - REST API for BPMN process execution (/api/process/execute)
+            - Camunda service delegates for external API integration
+            - Sequential and parallel process definitions (BPMN)
+            - Embedded Camunda engine with web applications
+            
+            Use Maven commands (./mvnw) for build operations.
+            Server runs on localhost:8080 with Camunda UI at /camunda/
 
           # This is an optional setting that allows Claude to read CI results on PRs
           additional_permissions: |
@@ -66,16 +73,18 @@ jobs:
           # Optional: Trigger when specific user is assigned to an issue
           # assignee_trigger: "claude-bot"
           
-          # Optional: Allow Claude to run specific commands
-          # allowed_tools: "Bash(npm install),Bash(npm run build),Bash(npm run test:*),Bash(npm run lint:*)"
+          # Optional: Allow Claude to run specific commands  
+          # allowed_tools: "Bash(./mvnw clean),Bash(./mvnw compile),Bash(./mvnw test),Bash(./mvnw spring-boot:run)"
           
           # Optional: Add custom instructions for Claude to customize its behavior for your project
           # custom_instructions: |
-          #   Follow our coding standards
-          #   Ensure all new code has tests
-          #   Use TypeScript for new files
+          #   Follow Spring Boot and Java coding standards
+          #   Ensure all service delegates have proper error handling
+          #   Use proper BPMN 2.0 modeling conventions
+          #   Write JUnit tests for all business logic
           
           # Optional: Custom environment variables for Claude
           # claude_env: |
-          #   NODE_ENV: test
+          #   JAVA_HOME: /usr/lib/jvm/temurin-21-jdk-amd64
+          #   MAVEN_OPTS: "-Xmx1024m"
 
