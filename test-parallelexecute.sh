@@ -14,7 +14,8 @@ NC='\033[0m' # No Color
 
 # API 基礎 URL
 BASE_URL="http://localhost:8080"
-API_ENDPOINT="$BASE_URL/api/process/parallelexecute"
+HEALTH_URL="http://localhost:9000"
+API_ENDPOINT="$BASE_URL/api/process/execute"
 
 # 測試計數器
 TOTAL_TESTS=0
@@ -87,7 +88,7 @@ execute_test() {
 # 檢查服務是否運行
 check_service() {
     echo -e "${YELLOW}檢查服務狀態...${NC}"
-    if curl -s "$BASE_URL/actuator/health" >/dev/null 2>&1 || curl -s "$BASE_URL" >/dev/null 2>&1; then
+    if curl -s "$HEALTH_URL/actuator/health" >/dev/null 2>&1 || curl -s "$BASE_URL" >/dev/null 2>&1; then
         echo -e "${GREEN}✅ 服務正在運行${NC}\n"
     else
         echo -e "${RED}❌ 服務未運行，請先啟動應用程式：mvn spring-boot:run${NC}"
@@ -95,7 +96,7 @@ check_service() {
     fi
 }
 
-print_header "Camunda /parallelexecute API 測試腳本"
+print_header "Camunda /execute API 測試腳本"
 
 # 檢查服務狀態
 check_service
@@ -107,6 +108,7 @@ execute_test \
     "curl -s -X POST '$API_ENDPOINT' \
     -H 'Content-Type: application/json' \
     -d '{
+        \"processType\": \"parallel\",
         \"apiCalls\": [
             {
                 \"apiUrl\": \"https://httpbin.org/delay/1\",
@@ -132,6 +134,7 @@ execute_test \
     "curl -s -X POST '$API_ENDPOINT' \
     -H 'Content-Type: application/json' \
     -d '{
+        \"processType\": \"parallel\",
         \"apiCalls\": [
             {
                 \"apiUrl\": \"https://httpbin.org/post\",
@@ -149,6 +152,7 @@ execute_test \
     "curl -s -X POST '$API_ENDPOINT' \
     -H 'Content-Type: application/json' \
     -d '{
+        \"processType\": \"parallel\",
         \"apiCalls\": [
             {
                 \"apiUrl\": \"https://httpbin.org/post\",
@@ -164,6 +168,7 @@ execute_test \
 print_header "測試 4: 大批次執行（10個 API）"
 large_batch_json=$(cat <<'EOF'
 {
+    "processType": "sequential",
     "apiCalls": [
         {"apiUrl": "https://httpbin.org/delay/1", "payload": "{\"id\": 1}"},
         {"apiUrl": "https://httpbin.org/delay/1", "payload": "{\"id\": 2}"},
@@ -225,9 +230,10 @@ execute_test \
     "curl -s -X POST '$API_ENDPOINT' \
     -H 'Content-Type: application/json' \
     -d '{
+        \"processType\": \"parallel\",
         \"apiCalls\": [
             {
-                \"apiUrl\": \"$BASE_URL/actuator/health\",
+                \"apiUrl\": \"$HEALTH_URL/actuator/health\",
                 \"payload\": \"{}\"
             }
         ]
@@ -243,6 +249,7 @@ start_time=$(date +%s.%N)
 response=$(curl -s -X POST "$API_ENDPOINT" \
     -H 'Content-Type: application/json' \
     -d '{
+        "processType": "parallel",
         "apiCalls": [
             {"apiUrl": "https://httpbin.org/delay/2", "payload": "{\"test\": \"performance\"}"},
             {"apiUrl": "https://httpbin.org/delay/2", "payload": "{\"test\": \"performance\"}"}

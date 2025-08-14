@@ -1,12 +1,12 @@
 #!/bin/bash
 
-# 簡化版 /parallelexecute API 測試腳本
+# 簡化版 /execute API 測試腳本
 # 快速驗證 API 基本功能
 
 BASE_URL="http://localhost:8080"
-API_ENDPOINT="$BASE_URL/api/process/parallelexecute"
+API_ENDPOINT="$BASE_URL/api/process/execute"
 
-echo "🚀 測試 /parallelexecute API"
+echo "🚀 測試 /execute API"
 echo "================================"
 
 # 檢查服務狀態
@@ -22,6 +22,7 @@ echo -e "\n📝 測試 1: 多 API 並行執行"
 response1=$(curl -s -X POST "$API_ENDPOINT" \
     -H 'Content-Type: application/json' \
     -d '{
+        "processType": "parallel",
         "apiCalls": [
             {
                 "apiUrl": "https://httpbin.org/post",
@@ -45,6 +46,7 @@ echo -e "\n📝 測試 2: 單一 API 執行"
 response2=$(curl -s -X POST "$API_ENDPOINT" \
     -H 'Content-Type: application/json' \
     -d '{
+        "processType": "parallel",
         "apiCalls": [
             {
                 "apiUrl": "https://httpbin.org/post",
@@ -76,6 +78,7 @@ echo -e "\n📝 測試 4: 自定義 taskId"
 response4=$(curl -s -X POST "$API_ENDPOINT" \
     -H 'Content-Type: application/json' \
     -d '{
+        "processType": "parallel",
         "apiCalls": [
             {
                 "apiUrl": "https://httpbin.org/post",
